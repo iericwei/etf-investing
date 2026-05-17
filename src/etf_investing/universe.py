@@ -6,13 +6,11 @@
 import json
 import logging
 import requests
-from pathlib import Path
-
-from etf_config import CONFIG, request_headers, today_str
+from .config import BASE_DIR, CONFIG, request_headers, today_str
 
 logger = logging.getLogger(__name__)
 
-_CACHE = Path(__file__).parent / ".universe_cache.json"
+_CACHE = BASE_DIR / ".universe_cache.json"
 
 _URL = CONFIG["urls"]["eastmoney_universe"]
 _HEADERS = request_headers("eastmoney")
@@ -101,7 +99,7 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
         logger.error(f"[universe] 东方财富接口失败: {e}")
         # 降级使用静态候选池
         try:
-            from etf_pool import ETF_POOL
+            from .pool import ETF_POOL
             logger.warning("[universe] 降级使用静态候选池")
             return ETF_POOL
         except ImportError:

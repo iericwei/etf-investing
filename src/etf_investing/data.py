@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import pandas as pd
 
-from etf_config import CONFIG, request_headers, tencent_history_url, tencent_realtime_url
+from .config import CONFIG, request_headers, tencent_history_url, tencent_realtime_url
 
 logger = logging.getLogger(__name__)
 

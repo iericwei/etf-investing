@@ -13,7 +13,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-BASE_DIR = Path(__file__).parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+BASE_DIR = PACKAGE_DIR.parents[1]
 CONFIG_FILE = BASE_DIR / "config.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -58,6 +59,47 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_history_rows": 30,
         "holding_history_workers": 5,
         "holding_min_history_rows": 10,
+    },
+
+    "models": {
+        "active_selection_model": "multi_factor_v1",
+        "selection": {
+            "multi_factor_v1": {
+                "display_name": "多因子评分模型 v1",
+                "factor_weights": {
+                    "momentum": 0.35,
+                    "volume": 0.25,
+                    "technical": 0.25,
+                    "trend": 0.15
+                },
+                "momentum": {
+                    "ret3_weight": 0.55,
+                    "ret5_weight": 0.45
+                },
+                "volume": {
+                    "ret_window": "ret3",
+                    "ret_clip_min": -4,
+                    "ret_clip_max": 15,
+                    "ret_offset": 5
+                },
+                "technical": {
+                    "rsi_target": 55,
+                    "rsi_penalty_per_point": 2,
+                    "rsi_weight": 0.35,
+                    "macd_weight": 0.35,
+                    "ma_weight": 0.30,
+                    "ma5_score": 33,
+                    "ma10_score": 33,
+                    "ma_aligned_score": 34
+                },
+                "filters": {
+                    "max_rsi": 82,
+                    "min_ret5": -9,
+                    "ma20_down_ret3": -3,
+                    "ma20_down_ret5": -5
+                }
+            }
+        }
     },
     "server": {
         "host": "0.0.0.0",

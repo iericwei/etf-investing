@@ -72,7 +72,10 @@
   },
   "web": {
     "_comment": "Web Dashboard 前端轮询、持仓刷新和交易时段自动刷新配置。",
-    "initial_load_hint_seconds": [60, 90],
+    "initial_load_hint_seconds": [
+      60,
+      90
+    ],
     "_comment_initial_load_hint_seconds": "启动提示中的首次加载预估耗时区间，单位秒。",
     "selection_poll_interval_ms": 2500,
     "_comment_selection_poll_interval_ms": "前端等待选股结果时轮询 /api/select 的间隔，单位毫秒。",
@@ -86,5 +89,54 @@
     "_comment_auto_refresh_start_minute": "自动刷新开始时间，按当天 0 点后的分钟数表示。565 = 09:25。",
     "auto_refresh_end_minute": 905,
     "_comment_auto_refresh_end_minute": "自动刷新结束时间，按当天 0 点后的分钟数表示。905 = 15:05。"
+  },
+  "models": {
+    "_comment": "模型配置。active_selection_model 指定当前选股模型；models.selection 下可扩展多个模型方案。",
+    "active_selection_model": "multi_factor_v1",
+    "_comment_active_selection_model": "当前启用的选股模型名称，需对应 models.selection 下的 key。",
+    "selection": {
+      "_comment": "选股模型参数集合。新增模型时在这里增加配置，并在 etf_strategy.py 注册模型类。",
+      "multi_factor_v1": {
+        "_comment": "默认多因子模型：动量、量能、技术、趋势四类因子加权评分。",
+        "display_name": "多因子评分模型 v1",
+        "factor_weights": {
+          "_comment": "四类一级因子的总分权重，建议总和为 1；程序会按当前数值归一化。",
+          "momentum": 0.35,
+          "volume": 0.25,
+          "technical": 0.25,
+          "trend": 0.15
+        },
+        "momentum": {
+          "_comment": "动量因子：3 日和 5 日涨跌幅加权后归一化。",
+          "ret3_weight": 0.55,
+          "ret5_weight": 0.45
+        },
+        "volume": {
+          "_comment": "量能因子：vol_ratio * (ret_window 截断值 + ret_offset)，用于表达量价协同。",
+          "ret_window": "ret3",
+          "ret_clip_min": -4,
+          "ret_clip_max": 15,
+          "ret_offset": 5
+        },
+        "technical": {
+          "_comment": "技术因子：RSI 健康度、MACD、均线状态的内部权重和分值。",
+          "rsi_target": 55,
+          "rsi_penalty_per_point": 2,
+          "rsi_weight": 0.35,
+          "macd_weight": 0.35,
+          "ma_weight": 0.3,
+          "ma5_score": 33,
+          "ma10_score": 33,
+          "ma_aligned_score": 34
+        },
+        "filters": {
+          "_comment": "硬过滤阈值：过热、短期大跌、破 MA20 且持续下跌。",
+          "max_rsi": 82,
+          "min_ret5": -9,
+          "ma20_down_ret3": -3,
+          "ma20_down_ret5": -5
+        }
+      }
+    }
   }
 }
