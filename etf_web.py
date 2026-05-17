@@ -540,7 +540,15 @@ tr.holding        { background: rgba(63,185,80,.04) !important; }
 .sell-3 { background: rgba(248,81,73,.12);  color: var(--red);    border: 1px solid rgba(248,81,73,.3);  }
 .sell-na{ background: var(--surface2);      color: var(--muted);  border: 1px solid var(--border); }
 .sell-wrap .tip-content { min-width: 200px; }
-.sell-wrap:hover .tip-content { display: block; }
+.sell-wrap:hover .tip-content { display: none; }
+.floating-tip {
+  display: block;
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 1000;
+  pointer-events: none;
+}
 .sig-item {
   display: flex;
   justify-content: space-between;
@@ -644,6 +652,8 @@ let _holdings = new Set();
 let _holdingsTimer = null;
 let _holdingsCountdown = null;
 let _holdingsSecs = 0;
+let _activeSellWrap = null;
+let _floatingSellTip = null;
 
 function pct(v) {
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -682,6 +692,58 @@ function sellBadge(sell) {
   return `<div class="sell-wrap"><span class="sell-badge ${cls}">${sell.urgency || '—'}</span>${tip}</div>`;
 }
 function rankCls(n) { return n===1?'r1':n===2?'r2':n===3?'r3':''; }
+
+function hideSellTip() {
+  if (_floatingSellTip) {
+    _floatingSellTip.remove();
+    _floatingSellTip = null;
+  }
+  _activeSellWrap = null;
+}
+
+function showSellTip(wrap) {
+  const src = wrap.querySelector('.tip-content');
+  if (!src) return;
+  if (_activeSellWrap === wrap && _floatingSellTip) return;
+
+  hideSellTip();
+  _activeSellWrap = wrap;
+  _floatingSellTip = src.cloneNode(true);
+  _floatingSellTip.classList.add('floating-tip');
+  document.body.appendChild(_floatingSellTip);
+
+  const gap = 6;
+  const margin = 8;
+  const rect = wrap.getBoundingClientRect();
+  const tipRect = _floatingSellTip.getBoundingClientRect();
+  let left = rect.right - tipRect.width;
+  let top = rect.bottom + gap;
+
+  if (top + tipRect.height > window.innerHeight - margin) {
+    top = rect.top - tipRect.height - gap;
+  }
+  left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - tipRect.height - margin));
+
+  _floatingSellTip.style.left = `${left}px`;
+  _floatingSellTip.style.top = `${top}px`;
+}
+
+document.addEventListener('mouseover', e => {
+  const wrap = e.target.closest('.sell-wrap');
+  if (!wrap || !wrap.contains(e.target)) return;
+  showSellTip(wrap);
+});
+
+document.addEventListener('mouseout', e => {
+  const wrap = e.target.closest('.sell-wrap');
+  if (!wrap) return;
+  if (e.relatedTarget && wrap.contains(e.relatedTarget)) return;
+  hideSellTip();
+});
+
+window.addEventListener('scroll', hideSellTip, true);
+window.addEventListener('resize', hideSellTip);
 
 /* ── 持仓管理 ────────────────────────────────────────────────────── */
 async function loadHoldings() {
@@ -730,6 +792,7 @@ function applyHoldings() {
 /* ── 持仓面板 ────────────────────────────────────────────────────── */
 async function refreshHoldings() {
   try {
+    hideSellTip();
     const d = await (await fetch('/api/holdings/realtime')).json();
     if (d.timestamp) document.getElementById('hpTs').textContent = '更新于 ' + d.timestamp;
     const items = d.data || [];
