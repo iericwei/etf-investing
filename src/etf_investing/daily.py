@@ -64,6 +64,10 @@ def print_report(results: list, universe_total: int, scanned: int):
             f"技术得分 {r['technical_score']:.0f}   "
             f"量能得分 {r['volume_score']:.0f}"
         )
+        bt = r.get("backtest_return_pct")
+        bt_text = _sign(bt) if isinstance(bt, (int, float)) else "—"
+        trade = r.get("trade_signal") or {}
+        print(f"      模型信号: {trade.get('label', '观望')}   一月回测: {bt_text}")
         print(f"      信号: {_signals(r)}")
         print(f"  {LINE}")
 

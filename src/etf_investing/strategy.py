@@ -350,12 +350,212 @@ def select_top(
             "trend_score":     row.get("trend_score", 0),
             "model":           model.name,
         })
+
+    for item in results:
+        code = item["code"]
+        trade_signal = compute_trade_signal(enriched[code], realtime_price=float(item.get("price") or 0))
+        item["trade_signal"] = trade_signal
+        item["buy_signal"] = trade_signal["action"] == "buy"
+        item["sell_signal"] = trade_signal["action"] == "sell"
+        bt = backtest_model(enriched[code], window=22)
+        item["backtest"] = bt
+        item["backtest_return_pct"] = bt["return_pct"]
     return results
 
 
-# ── 卖出信号模型 ───────────────────────────────────────────────────────
+# ── 买卖信号与回测模型 ─────────────────────────────────────────────────
 
 _SIG_WEIGHT = {"强": 3, "中": 2, "弱": 1}
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def compute_trade_signal(df: pd.DataFrame, realtime_price: float = 0) -> dict:
+    """
+    基于同一套技术指标输出模型买卖信号。
+
+    action:
+      buy  = 多头条件占优，适合进入/继续持有
+      sell = 卖出风险达到“考虑减仓”及以上
+      hold = 信号不明确，观望/持有
+    """
+    if df.empty or len(df) < 20:
+        return {
+            "action": "hold",
+            "label": "观望：数据不足",
+            "level": 0,
+            "buy_signals": [],
+            "sell_signals": [],
+        }
+
+    ind = compute_indicators(df.copy())
+    last = ind.iloc[-1]
+    prev = ind.iloc[-2] if len(ind) >= 2 else last
+    price = realtime_price if realtime_price > 0 else _safe_float(last.get("close"))
+
+    ma5 = _safe_float(last.get("ma5"))
+    ma10 = _safe_float(last.get("ma10"))
+    ma20 = _safe_float(last.get("ma20"))
+    rsi = _safe_float(last.get("rsi"), 50.0)
+    hist = _safe_float(last.get("macd_hist"))
+    prev_hist = _safe_float(prev.get("macd_hist"))
+    ret3 = _safe_float(last.get("ret3"))
+    ret5 = _safe_float(last.get("ret5"))
+    vol_ratio = _safe_float(last.get("vol_ratio"), 1.0)
+
+    buy_signals = []
+    if ma5 > 0 and ma10 > 0 and ma20 > 0 and price > ma5 > ma10 > ma20:
+        buy_signals.append({"name": "均线多头排列", "level": "强"})
+    elif ma5 > 0 and ma10 > 0 and price > ma5 > ma10:
+        buy_signals.append({"name": "站上 MA5/MA10", "level": "中"})
+
+    if hist > 0 and prev_hist <= 0:
+        buy_signals.append({"name": "MACD 刚转多", "level": "中"})
+    elif hist > 0:
+        buy_signals.append({"name": "MACD 看多", "level": "弱"})
+
+    if ret3 > 0 and ret5 > 0:
+        buy_signals.append({"name": "短期动量为正", "level": "中"})
+    elif ret3 > 0:
+        buy_signals.append({"name": "3日动量为正", "level": "弱"})
+
+    if vol_ratio >= 1.5 and ret3 > 0:
+        buy_signals.append({"name": f"放量上涨 {vol_ratio:.1f}x", "level": "中"})
+
+    if 35 <= rsi <= 70:
+        buy_signals.append({"name": f"RSI健康 {rsi:.0f}", "level": "弱"})
+
+    sell = compute_sell_signals(ind, realtime_price=realtime_price)
+    sell_level = int(sell.get("urgency_level", 0) or 0)
+    buy_score = sum(_SIG_WEIGHT[s["level"]] for s in buy_signals)
+
+    if sell_level >= 2:
+        action = "sell"
+        label = sell.get("urgency") or "卖出"
+        level = sell_level
+    elif buy_score >= 3:
+        action = "buy"
+        label = "买入/持有"
+        level = 1 if buy_score < 5 else 2
+    else:
+        action = "hold"
+        label = "观望"
+        level = 0
+
+    return {
+        "action": action,
+        "label": label,
+        "level": level,
+        "buy_score": buy_score,
+        "buy_signals": buy_signals,
+        "sell_signals": sell,
+    }
+
+
+def _format_backtest_date(row: pd.Series, fallback_pos: int) -> str:
+    value = row.get("date")
+    if value is None or pd.isna(value):
+        return str(fallback_pos + 1)
+    try:
+        return pd.to_datetime(value).strftime("%m-%d")
+    except Exception:
+        return str(value)
+
+
+def _trade_reason(sig: dict, action: str) -> str:
+    if action == "buy":
+        names = [s.get("name", "") for s in sig.get("buy_signals", []) if s.get("name")]
+    else:
+        sell = sig.get("sell_signals") or {}
+        names = [s.get("name", "") for s in sell.get("signals", []) if s.get("name")]
+    return "；".join(names[:3]) or ("模型买入" if action == "buy" else "模型卖出")
+
+
+def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
+    """用买卖信号对最近 window 个交易日做单标的一月回测。"""
+    if df.empty or len(df) < 20:
+        return {
+            "return_pct": 0.0,
+            "window_days": int(window),
+            "trades": 0,
+            "holding": False,
+            "entry_price": None,
+            "curve": [],
+            "trade_points": [],
+            "status": "数据不足",
+        }
+
+    data = df.copy().reset_index(drop=True)
+    start = max(1, len(data) - int(window))
+    cash = 1.0
+    shares = 0.0
+    entry_price = 0.0
+    trades = 0
+    curve = []
+    trade_points = []
+
+    for pos in range(start, len(data)):
+        hist = data.iloc[: pos + 1]
+        row = hist.iloc[-1]
+        date_text = _format_backtest_date(row, pos)
+        price = _safe_float(row.get("close"))
+        if price <= 0:
+            continue
+        sig = compute_trade_signal(hist)
+        if shares <= 0 and sig["action"] == "buy":
+            shares = cash / price
+            cash = 0.0
+            entry_price = price
+            trades += 1
+            trade_points.append({
+                "action": "buy",
+                "label": "买入",
+                "date": date_text,
+                "price": round(price, 4),
+                "reason": _trade_reason(sig, "buy"),
+                "return_pct": round((cash + shares * price - 1.0) * 100, 2),
+            })
+        elif shares > 0 and sig["action"] == "sell":
+            cash = shares * price
+            shares = 0.0
+            entry_price = 0.0
+            trades += 1
+            trade_points.append({
+                "action": "sell",
+                "label": "卖出",
+                "date": date_text,
+                "price": round(price, 4),
+                "reason": _trade_reason(sig, "sell"),
+                "return_pct": round((cash - 1.0) * 100, 2),
+            })
+
+        value = cash + shares * price
+        curve.append({
+            "date": date_text,
+            "close": round(price, 4),
+            "return_pct": round((value - 1.0) * 100, 2),
+        })
+
+    last_price = _safe_float(data.iloc[-1].get("close"))
+    final_value = cash + shares * last_price
+    return_pct = (final_value - 1.0) * 100
+    return {
+        "return_pct": round(return_pct, 2),
+        "window_days": int(window),
+        "trades": trades,
+        "holding": shares > 0,
+        "entry_price": round(entry_price, 4) if entry_price else None,
+        "curve": curve,
+        "trade_points": trade_points,
+        "status": "ok",
+    }
 
 
 def compute_sell_signals(df: pd.DataFrame, realtime_price: float = 0) -> dict:

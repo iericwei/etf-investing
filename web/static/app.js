@@ -31,12 +31,26 @@ let _holdingsCountdown = null;
 let _holdingsSecs = 0;
 let _activeSellWrap = null;
 let _floatingSellTip = null;
+let _sortField = null;
+let _sortDir = 'desc';
+
+const SORT_LABELS = {
+  change_pct: '今日',
+  ret3: '3日',
+  ret5: '5日',
+  ret10: '10日',
+  backtest_return_pct: '回测1月',
+  score: '评分',
+};
 
 function pct(v) {
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 }
 function pctCls(v) {
   return v > 0.05 ? 'pos' : v < -0.05 ? 'neg' : 'neu';
+}
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
 function rsiCls(v) {
   return v > 75 ? 'rsi-hot' : v > 65 ? 'rsi-warm' : v < 35 ? 'rsi-cold' : 'rsi-good';
@@ -52,6 +66,64 @@ function signals(r) {
   if (r.vol_ratio>=1.5)  s += `<span class="sig s-vol">🔥 ${r.vol_ratio.toFixed(1)}x</span>`;
   if (r.rsi < 45)        s += '<span class="sig s-rsi">超卖回弹</span>';
   return `<div class="sigs">${s || '<span style="color:#8b949e;font-size:11px">—</span>'}</div>`;
+}
+function tradeSignalBadge(sig) {
+  if (!sig || !sig.action) return '<span class="trade-badge trade-hold">观望</span>';
+  const cls = sig.action === 'buy' ? 'trade-buy' : sig.action === 'sell' ? 'trade-sell' : 'trade-hold';
+  const buyRows = (sig.buy_signals || []).map(s =>
+    `<div class="sig-item"><span>${s.name}</span><span class="sig-lv-${s.level}">${s.level}</span></div>`
+  ).join('');
+  const sellRows = (((sig.sell_signals || {}).signals) || []).map(s =>
+    `<div class="sig-item"><span>${s.name}</span><span class="sig-lv-${s.level}">${s.level}</span></div>`
+  ).join('');
+  const tip = (buyRows || sellRows)
+    ? `<div class="tip-content">${buyRows}${sellRows ? '<div class="tip-sep">卖出风险</div>' + sellRows : ''}</div>`
+    : '';
+  return `<div class="trade-wrap"><span class="trade-badge ${cls}">${sig.label || sig.action}</span>${tip}</div>`;
+}
+function backtestCell(r) {
+  if (r.backtest_return_pct == null) return '<span class="muted">—</span>';
+  const bt = r.backtest || {};
+  const curve = Array.isArray(bt.curve) ? bt.curve : [];
+  const points = Array.isArray(bt.trade_points) ? bt.trade_points : [];
+  if (!curve.length) return `<span class="${pctCls(r.backtest_return_pct)}">${pct(r.backtest_return_pct)}</span>`;
+
+  const w = 250, h = 86, pad = 8;
+  const returns = curve.map(p => Number(p.return_pct)).filter(Number.isFinite);
+  const min = Math.min(...returns, 0);
+  const max = Math.max(...returns, 0);
+  const span = Math.max(max - min, 0.01);
+  const xAt = i => pad + (curve.length <= 1 ? 0 : i * (w - pad * 2) / (curve.length - 1));
+  const yAt = v => pad + (max - Number(v)) * (h - pad * 2) / span;
+  const line = curve.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.return_pct).toFixed(1)}`).join(' ');
+  const zeroY = yAt(0).toFixed(1);
+  const markers = points.map(tp => {
+    const idx = Math.max(0, curve.findIndex(p => p.date === tp.date));
+    const p = curve[idx] || curve[0];
+    const cls = tp.action === 'buy' ? 'bt-buy' : 'bt-sell';
+    const label = tp.action === 'buy' ? 'B' : 'S';
+    return `<g class="${cls}"><circle cx="${xAt(idx).toFixed(1)}" cy="${yAt(p.return_pct).toFixed(1)}" r="4"></circle><text x="${xAt(idx).toFixed(1)}" y="${(yAt(p.return_pct)+3).toFixed(1)}">${label}</text></g>`;
+  }).join('');
+  const tradeRows = points.length ? points.map(tp => `
+    <div class="bt-trade ${tp.action === 'buy' ? 'bt-buy-text' : 'bt-sell-text'}">
+      <div><b>${esc(tp.label || tp.action)}</b> ${esc(tp.date)} @ ${Number(tp.price).toFixed(3)}</div>
+      <div class="bt-reason">${esc(tp.reason)}，当时收益 ${pct(Number(tp.return_pct) || 0)}</div>
+    </div>`).join('') : '<div class="muted">回测期内未触发买卖点</div>';
+  return `
+    <div class="backtest-wrap">
+      <span class="${pctCls(r.backtest_return_pct)}">${pct(r.backtest_return_pct)}</span>
+      <div class="tip-content backtest-tip">
+        <div class="bt-title">${esc(r.name)} 最近${bt.window_days || 22}日回测：${pct(r.backtest_return_pct)}</div>
+        <svg class="bt-chart" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="回测收益曲线">
+          <line x1="${pad}" y1="${zeroY}" x2="${w-pad}" y2="${zeroY}" class="bt-zero"></line>
+          <polyline points="${line}" class="bt-line"></polyline>
+          ${markers}
+        </svg>
+        <div class="bt-axis"><span>${esc(curve[0].date)}</span><span>${esc(curve[curve.length - 1].date)}</span></div>
+        <div class="tip-sep">买卖点明细</div>
+        ${tradeRows}
+      </div>
+    </div>`;
 }
 function sellBadge(sell) {
   if (!sell || sell.urgency_level == null) {
@@ -107,13 +179,13 @@ function showSellTip(wrap) {
 }
 
 document.addEventListener('mouseover', e => {
-  const wrap = e.target.closest('.sell-wrap');
+  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap');
   if (!wrap || !wrap.contains(e.target)) return;
   showSellTip(wrap);
 });
 
 document.addEventListener('mouseout', e => {
-  const wrap = e.target.closest('.sell-wrap');
+  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap');
   if (!wrap) return;
   if (e.relatedTarget && wrap.contains(e.relatedTarget)) return;
   hideSellTip();
@@ -244,13 +316,61 @@ function scoreCell(r) {
     <div class="score-cell score-tip">
       <div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div>
       <div class="score-val">${r.score.toFixed(1)}</div>
-      <div class="tip-content">
-        <div class="tip-row"><span class="tip-label">动量 (35%)</span><span class="tip-val">${r.momentum_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label">量能 (25%)</span><span class="tip-val">${r.volume_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label">技术 (25%)</span><span class="tip-val">${r.technical_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label">综合得分</span><span class="tip-val">${r.score.toFixed(1)}</span></div>
+      <div class="tip-content factor-tip">
+        <div class="tip-row"><span class="tip-label factor-help">动量 (35%)<small>3日/5日涨跌幅，衡量短期价格强弱</small></span><span class="tip-val">${r.momentum_score.toFixed(1)}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">量能 (25%)<small>量比 × 短期涨幅，衡量放量上涨协同</small></span><span class="tip-val">${r.volume_score.toFixed(1)}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">技术 (25%)<small>RSI 健康度、MACD、均线结构综合评分</small></span><span class="tip-val">${r.technical_score.toFixed(1)}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">趋势 (15%)<small>10日涨跌幅，衡量更长一点的趋势延续</small></span><span class="tip-val">${(r.trend_score || 0).toFixed(1)}</span></div>
+        <div class="tip-row total"><span class="tip-label">综合得分</span><span class="tip-val">${r.score.toFixed(1)}</span></div>
       </div>
     </div>`;
+}
+
+function numericValue(row, field) {
+  const value = row[field];
+  if (value == null || Number.isNaN(Number(value))) return null;
+  return Number(value);
+}
+
+function sortRows(list) {
+  const rows = [...list];
+  if (!_sortField) return rows;
+  const dir = _sortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = numericValue(a, _sortField);
+    const bv = numericValue(b, _sortField);
+    if (av == null && bv == null) return a.rank - b.rank;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (av === bv) return a.rank - b.rank;
+    return (av - bv) * dir;
+  });
+  return rows;
+}
+
+function currentList() {
+  if (_activeCat === '全部') return _allResults;
+  return _allResults.filter(r => r.category === _activeCat);
+}
+
+function sortBy(field) {
+  if (_sortField === field) {
+    _sortDir = _sortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _sortField = field;
+    _sortDir = 'desc';
+  }
+  renderRows(currentList());
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll('th.sortable').forEach(th => {
+    const field = th.dataset.sort;
+    const label = SORT_LABELS[field] || th.textContent.replace(/[↓↑↕]/g, '').trim();
+    th.classList.toggle('active', field === _sortField);
+    const icon = field === _sortField ? (_sortDir === 'desc' ? '↓' : '↑') : '↕';
+    th.innerHTML = `${label}<span class="sort-icon">${icon}</span>`;
+  });
 }
 
 function buildTabs(results) {
@@ -285,13 +405,14 @@ function selectTab(cat) {
   } else {
     table.style.display   = '';
     hpPanel.style.display = 'none';
-    const filtered = cat === '全部' ? _allResults : _allResults.filter(r => r.category === cat);
+    const filtered = currentList();
     renderRows(filtered);
   }
 }
 
 function renderRows(list) {
-  document.getElementById('tbody').innerHTML = list.map(r => `
+  const rows = sortRows(list);
+  document.getElementById('tbody').innerHTML = rows.map(r => `
     <tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
       <td class="r"><span class="rank ${rankCls(r.rank)}">#${r.rank}</span></td>
       <td><span class="code">${r.code}</span></td>
@@ -305,9 +426,12 @@ function renderRows(list) {
       <td class="r ${rsiCls(r.rsi)}">${r.rsi.toFixed(1)}</td>
       <td class="r">${r.vol_ratio.toFixed(2)}</td>
       <td>${signals(r)}</td>
+      <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
+      <td class="r">${backtestCell(r)}</td>
       <td class="r">${scoreCell(r)}</td>
       <td style="text-align:center">${holdBtn(r.code)}</td>
     </tr>`).join('');
+  updateSortHeaders();
 }
 
 function render(data) {

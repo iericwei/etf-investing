@@ -44,14 +44,16 @@
             <th>名称</th>
             <th>类别</th>
             <th class="r">现价</th>
-            <th class="r">今日</th>
-            <th class="r">3日</th>
-            <th class="r">5日</th>
-            <th class="r">10日</th>
+            <th class="r sortable" data-sort="change_pct" onclick="sortBy('change_pct')">今日<span class="sort-icon">↕</span></th>
+            <th class="r sortable" data-sort="ret3" onclick="sortBy('ret3')">3日<span class="sort-icon">↕</span></th>
+            <th class="r sortable" data-sort="ret5" onclick="sortBy('ret5')">5日<span class="sort-icon">↕</span></th>
+            <th class="r sortable" data-sort="ret10" onclick="sortBy('ret10')">10日<span class="sort-icon">↕</span></th>
             <th class="r">RSI</th>
             <th class="r">量比</th>
             <th>信号</th>
-            <th class="r">评分↓</th>
+            <th style="text-align:center">模型信号</th>
+            <th class="r sortable" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')">回测1月<span class="sort-icon">↕</span></th>
+            <th class="r sortable" data-sort="score" onclick="sortBy('score')">评分<span class="sort-icon">↕</span></th>
             <th style="text-align:center">持仓</th>
           </tr>
         </thead>
@@ -74,6 +76,7 @@
       <span><strong>因子权重</strong>：动量 35% · 量能 25% · 技术 25% · 趋势 15%</span>
       <span><strong>硬过滤</strong>：RSI > 82 | 5日跌幅 > 9% | 破 MA20 且持续下跌</span>
       <span><strong>信号</strong>：↑ 均线多头 · ⚡ MACD 看多 · 🔥 量比≥1.5x · 超卖回弹</span>
+      <span><strong>模型信号</strong>：买入/持有、观望、考虑减仓/卖出；回测1月覆盖当前榜单全部标的</span>
       <span style="color:#f85149"><strong>风险提示</strong>：仅供参考，不构成投资建议</span>
     </div>
   </div>
