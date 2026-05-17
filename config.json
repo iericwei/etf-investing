@@ -1,0 +1,90 @@
+{
+  "_comment": "ETF Investing 项目运行配置。说明字段以 _comment 开头，仅用于阅读说明，程序不会使用这些字段。",
+  "urls": {
+    "_comment": "外部行情/列表数据源 URL 配置。tencent_history 中的 {prefix}/{code}/{days}、tencent_realtime 中的 {codes} 是程序运行时替换的占位符。",
+    "eastmoney_universe": "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f6&fs=b:MK0021,b:MK0022,b:MK0023,b:MK0024&fields=f12,f13,f14,f2,f3,f6",
+    "tencent_history": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayhfq&param={prefix}{code},day,,,{days},qfq",
+    "tencent_realtime": "https://qt.gtimg.cn/q={codes}"
+  },
+  "headers": {
+    "_comment": "请求外部数据源时使用的 HTTP Header。不同数据源使用不同 Referer，User-Agent 统一配置。",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "tencent_referer": "https://gu.qq.com/",
+    "eastmoney_referer": "https://fund.eastmoney.com/"
+  },
+  "network": {
+    "_comment": "网络请求相关配置。timeouts 单位均为秒。",
+    "timeouts": {
+      "_comment": "各数据源请求超时时间，避免接口卡住导致选股流程长时间阻塞。",
+      "eastmoney_universe": 15,
+      "tencent_history": 10,
+      "tencent_realtime": 8
+    }
+  },
+  "selection": {
+    "_comment": "ETF 扫描、历史数据拉取和评分范围配置。金额单位为元。",
+    "default_min_amount": 50000000,
+    "_comment_default_min_amount": "默认流动性门槛：日成交额不低于该值的 ETF 才进入扫描。50000000 = 5000 万。",
+    "default_max_count": 300,
+    "_comment_default_max_count": "按成交额降序最多扫描的 ETF 数量，避免全市场历史数据拉取过慢。",
+    "default_top_n": 10,
+    "_comment_default_top_n": "命令行 etf_daily.py 默认展示的优选 ETF 数量。",
+    "web_top_n": 50,
+    "_comment_web_top_n": "Web Dashboard 后端缓存的优选 ETF 数量，用于前端分类筛选和展示。",
+    "history_days": 65,
+    "_comment_history_days": "每只 ETF 拉取的历史日 K 数量，用于计算 MA/RSI/MACD/涨跌幅等指标。",
+    "history_workers": 10,
+    "_comment_history_workers": "并发拉取历史 K 线的线程数。过大可能触发外部接口限流。",
+    "realtime_batch_size": 80,
+    "_comment_realtime_batch_size": "实时行情批量请求大小，过大可能导致腾讯接口 URL 过长。",
+    "min_history_rows": 30,
+    "_comment_min_history_rows": "进入评分模型所需的最少历史 K 线条数。",
+    "holding_history_workers": 5,
+    "_comment_holding_history_workers": "持仓面板为缺失历史数据的持仓 ETF 补拉 K 线时的最大线程数。",
+    "holding_min_history_rows": 10,
+    "_comment_holding_min_history_rows": "持仓卖出信号计算所需的最少历史 K 线条数。"
+  },
+  "server": {
+    "_comment": "本地服务配置。修改端口后需要重启服务。",
+    "host": "0.0.0.0",
+    "_comment_host": "Flask 监听地址。0.0.0.0 表示本机所有网卡；仅本机访问可改为 127.0.0.1。",
+    "quote_port": 5678,
+    "_comment_quote_port": "独立实时行情服务 etf_server.py 使用的端口。",
+    "web_port": 8080,
+    "_comment_web_port": "Web Dashboard etf_web.py 使用的端口。",
+    "quote_cache_ttl_seconds": 5,
+    "_comment_quote_cache_ttl_seconds": "独立行情服务相同请求的内存缓存时间，单位秒。",
+    "debug": false,
+    "_comment_debug": "Flask debug 模式。生产或日常使用建议保持 false。"
+  },
+  "time": {
+    "_comment": "日期和时间输出格式，语法遵循 Python datetime.strftime。",
+    "date_format": "%Y-%m-%d",
+    "_comment_date_format": "缓存日期和交易日判断使用的日期格式。",
+    "timestamp_format": "%Y-%m-%d %H:%M:%S",
+    "_comment_timestamp_format": "API 返回 timestamp/time 字段的时间格式。",
+    "report_time_format": "%Y-%m-%d  %H:%M",
+    "_comment_report_time_format": "命令行选股日报标题中的时间格式。",
+    "quote_updated_format": "%H:%M:%S",
+    "_comment_quote_updated_format": "mootdx 实时行情 updated 字段的时间格式。",
+    "quote_updated_compact_format": "%H%M%S",
+    "_comment_quote_updated_compact_format": "腾讯行情时间字段缺失时的紧凑备用格式。"
+  },
+  "web": {
+    "_comment": "Web Dashboard 前端轮询、持仓刷新和交易时段自动刷新配置。",
+    "initial_load_hint_seconds": [60, 90],
+    "_comment_initial_load_hint_seconds": "启动提示中的首次加载预估耗时区间，单位秒。",
+    "selection_poll_interval_ms": 2500,
+    "_comment_selection_poll_interval_ms": "前端等待选股结果时轮询 /api/select 的间隔，单位毫秒。",
+    "holdings_refresh_seconds": 120,
+    "_comment_holdings_refresh_seconds": "持仓面板实时行情自动刷新间隔，单位秒。",
+    "holdings_countdown_interval_ms": 1000,
+    "_comment_holdings_countdown_interval_ms": "持仓刷新倒计时更新间隔，单位毫秒。",
+    "auto_refresh_interval_ms": 600000,
+    "_comment_auto_refresh_interval_ms": "交易时段内自动触发 /api/refresh 的检查间隔，单位毫秒。600000 = 10 分钟。",
+    "auto_refresh_start_minute": 565,
+    "_comment_auto_refresh_start_minute": "自动刷新开始时间，按当天 0 点后的分钟数表示。565 = 09:25。",
+    "auto_refresh_end_minute": 905,
+    "_comment_auto_refresh_end_minute": "自动刷新结束时间，按当天 0 点后的分钟数表示。905 = 15:05。"
+  }
+}

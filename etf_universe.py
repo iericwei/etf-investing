@@ -6,29 +6,16 @@
 import json
 import logging
 import requests
-from datetime import date
 from pathlib import Path
+
+from etf_config import CONFIG, request_headers, today_str
 
 logger = logging.getLogger(__name__)
 
 _CACHE = Path(__file__).parent / ".universe_cache.json"
 
-_URL = (
-    "https://push2.eastmoney.com/api/qt/clist/get"
-    "?pn=1&pz=5000&po=1&np=1"
-    "&ut=bd1d9ddb04089700cf9c27f6f7426281"
-    "&fltt=2&invt=2&fid=f6"
-    "&fs=b:MK0021,b:MK0022,b:MK0023,b:MK0024"
-    "&fields=f12,f13,f14,f2,f3,f6"
-)
-
-_HEADERS = {
-    "Referer": "https://fund.eastmoney.com/",
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    ),
-}
+_URL = CONFIG["urls"]["eastmoney_universe"]
+_HEADERS = request_headers("eastmoney")
 
 # 名称关键词 → 行业分类
 _CATS = [
@@ -77,7 +64,7 @@ def _excluded(code: str, name: str) -> bool:
     return False
 
 
-def fetch_universe(min_amount: float = 5e7, max_count: int = 300,
+def fetch_universe(min_amount: float | None = None, max_count: int | None = None,
                    force: bool = False) -> list:
     """
     获取全市场 ETF 列表
@@ -88,7 +75,9 @@ def fetch_universe(min_amount: float = 5e7, max_count: int = 300,
 
     返回: [{"code", "name", "category", "market", "price", "change_pct", "amount"}]
     """
-    today = date.today().isoformat()
+    min_amount = float(min_amount if min_amount is not None else CONFIG["selection"]["default_min_amount"])
+    max_count = int(max_count if max_count is not None else CONFIG["selection"]["default_max_count"])
+    today = today_str()
 
     if not force and _CACHE.exists():
         try:
@@ -105,7 +94,7 @@ def fetch_universe(min_amount: float = 5e7, max_count: int = 300,
             pass
 
     try:
-        r = requests.get(_URL, headers=_HEADERS, timeout=15)
+        r = requests.get(_URL, headers=_HEADERS, timeout=CONFIG["network"]["timeouts"]["eastmoney_universe"])
         r.raise_for_status()
         rows = r.json().get("data", {}).get("diff") or []
     except Exception as e:

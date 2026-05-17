@@ -9,7 +9,7 @@ ETF 中短线每日选股（全市场扫描）
 import sys
 import argparse
 import logging
-from datetime import datetime
+from etf_config import CONFIG, now_str
 
 from etf_universe import fetch_universe
 from etf_data import fetch_all_history, fetch_realtime
@@ -38,10 +38,9 @@ def _signals(r: dict) -> str:
 
 
 def print_report(results: list, universe_total: int, scanned: int):
-    now = datetime.now()
     print()
     print("=" * 68)
-    print(f"  ETF 中短线选股报告   {now.strftime('%Y-%m-%d  %H:%M')}")
+    print(f"  ETF 中短线选股报告   {now_str('report_time_format')}")
     print(f"  全市场扫描 {universe_total} 只 → 流动性筛选 {scanned} 只 → 优选 {len(results)} 只")
     print("=" * 68)
 
@@ -90,9 +89,9 @@ def list_universe(universe: list):
 
 def main():
     parser = argparse.ArgumentParser(description="ETF 中短线每日选股（全市场）")
-    parser.add_argument("--top",        type=int,   default=10,  help="展示前N名（默认10）")
-    parser.add_argument("--min-amount", type=float, default=5e7, help="日成交额门槛，单位元（默认5000万）")
-    parser.add_argument("--max-count",  type=int,   default=300, help="按成交额取前N只（默认300）")
+    parser.add_argument("--top",        type=int,   default=int(CONFIG["selection"]["default_top_n"]),  help="展示前N名（默认配置值）")
+    parser.add_argument("--min-amount", type=float, default=float(CONFIG["selection"]["default_min_amount"]), help="日成交额门槛，单位元（默认配置值）")
+    parser.add_argument("--max-count",  type=int,   default=int(CONFIG["selection"]["default_max_count"]), help="按成交额取前N只（默认配置值）")
     parser.add_argument("--list",       action="store_true",     help="列出今日扫描范围后退出")
     args = parser.parse_args()
 
@@ -118,7 +117,7 @@ def main():
         return
 
     print(f"\n[2/4] 正在并发获取 {len(universe)} 只 ETF 历史数据...")
-    etf_map = fetch_all_history(universe, days=65)
+    etf_map = fetch_all_history(universe, days=int(CONFIG["selection"]["history_days"]))
     print(f"      成功获取 {len(etf_map)} 只")
 
     if not etf_map:

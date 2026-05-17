@@ -14,15 +14,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import pandas as pd
 
+from etf_config import CONFIG, request_headers, tencent_history_url, tencent_realtime_url
+
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "Referer": "https://gu.qq.com/",
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    ),
-}
+HEADERS = request_headers("tencent")
 
 # ── mootdx 懒加载 ─────────────────────────────────────────────────────
 
@@ -62,12 +58,9 @@ def _history_tencent(code: str, days: int) -> pd.DataFrame:
     格式: [date, open, close, high, low, volume, amount]
     """
     _, prefix = detect_market(code)
-    url = (
-        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-        f"?_var=kline_dayhfq&param={prefix}{code},day,,,{days},qfq"
-    )
+    url = tencent_history_url(prefix, code, days)
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(url, headers=HEADERS, timeout=CONFIG["network"]["timeouts"]["tencent_history"])
         r.encoding = "utf-8"
         json_str = re.sub(r"^kline_dayhfq\s*=\s*", "", r.text.strip()).rstrip(";")
         obj = json.loads(json_str)
@@ -119,16 +112,20 @@ def _history_mootdx(code: str, days: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def fetch_history(code: str, days: int = 65) -> pd.DataFrame:
-    """获取历史日 K（腾讯优先，失败降级 mootdx），最少需要 30 条"""
+def fetch_history(code: str, days: int | None = None) -> pd.DataFrame:
+    """获取历史日 K（腾讯优先，失败降级 mootdx），最少需要配置要求条数"""
+    days = days or int(CONFIG["selection"]["history_days"])
     df = _history_tencent(code, days)
     if df.empty:
         df = _history_mootdx(code, days)
     return df
 
 
-def fetch_all_history(pool: list, days: int = 65, workers: int = 10) -> Dict[str, pd.DataFrame]:
-    """并发获取候选池内所有 ETF 历史数据，过滤不足 30 条的"""
+def fetch_all_history(pool: list, days: int | None = None, workers: int | None = None) -> Dict[str, pd.DataFrame]:
+    """并发获取候选池内所有 ETF 历史数据，过滤不足配置要求条数的"""
+    days = days or int(CONFIG["selection"]["history_days"])
+    workers = workers or int(CONFIG["selection"]["history_workers"])
+    min_rows = int(CONFIG["selection"]["min_history_rows"])
     result: Dict[str, pd.DataFrame] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         fmap = {ex.submit(fetch_history, item["code"], days): item["code"] for item in pool}
@@ -136,7 +133,7 @@ def fetch_all_history(pool: list, days: int = 65, workers: int = 10) -> Dict[str
             code = fmap[future]
             try:
                 df = future.result()
-                if not df.empty and len(df) >= 30:
+                if not df.empty and len(df) >= min_rows:
                     result[code] = df
             except Exception as e:
                 logger.debug(f"[fetch_all] {code}: {e}")
@@ -177,9 +174,9 @@ def _realtime_tencent(codes: List[str]) -> Dict[str, dict]:
     if not codes:
         return {}
     qq_codes = [f"{'sh' if detect_market(c)[0] == 1 else 'sz'}{c}" for c in codes]
-    url = "https://qt.gtimg.cn/q=" + ",".join(qq_codes)
+    url = tencent_realtime_url(qq_codes)
     try:
-        r = requests.get(url, headers=HEADERS, timeout=8)
+        r = requests.get(url, headers=HEADERS, timeout=CONFIG["network"]["timeouts"]["tencent_realtime"])
         r.encoding = "gbk"
         out = {}
         for line in r.text.strip().split("\n"):
@@ -207,7 +204,7 @@ def _realtime_tencent(codes: List[str]) -> Dict[str, dict]:
         return {}
 
 
-def fetch_realtime(codes: List[str], batch_size: int = 80) -> Dict[str, dict]:
+def fetch_realtime(codes: List[str], batch_size: int | None = None) -> Dict[str, dict]:
     """
     获取实时行情（mootdx 优先，未覆盖的降级腾讯）
     大批量时自动分批，避免单次请求过大
@@ -215,6 +212,7 @@ def fetch_realtime(codes: List[str], batch_size: int = 80) -> Dict[str, dict]:
     if not codes:
         return {}
 
+    batch_size = batch_size or int(CONFIG["selection"]["realtime_batch_size"])
     result: Dict[str, dict] = {}
     for i in range(0, len(codes), batch_size):
         batch = codes[i: i + batch_size]

@@ -12,7 +12,7 @@ ETF 实时行情本地服务（mootdx + 腾讯财经 双数据源）
 
 启动：
   python etf_server.py
-  服务地址：http://localhost:5678
+  服务地址：由 config.json 的 server.quote_port 配置
 
 接口：
   GET /quote?codes=513130,518850,513100   返回多只 ETF 实时行情
@@ -24,10 +24,10 @@ import re
 import time
 import logging
 import threading
-from datetime import datetime
 from typing import List, Dict
 
 import requests
+from etf_config import CONFIG, app_base_url, now_str, request_headers, tencent_realtime_url
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -91,7 +91,7 @@ def fetch_via_mootdx(codes: List[str]) -> List[Dict]:
                 "bid1": float(row.get("bid1", 0) or 0),
                 "ask1": float(row.get("ask1", 0) or 0),
                 "source": "mootdx",
-                "updated": datetime.now().strftime("%H:%M:%S"),
+                "updated": now_str("quote_updated_format"),
             })
         return results
     except Exception as e:
@@ -100,10 +100,7 @@ def fetch_via_mootdx(codes: List[str]) -> List[Dict]:
 
 
 # ---- 腾讯财经数据源 ----
-TENCENT_HEADERS = {
-    "Referer": "https://gu.qq.com/",
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-}
+TENCENT_HEADERS = request_headers("tencent")
 
 
 def fetch_via_tencent(codes: List[str]) -> List[Dict]:
@@ -113,9 +110,9 @@ def fetch_via_tencent(codes: List[str]) -> List[Dict]:
     for c in codes:
         _, prefix = detect_market(c)
         qq_codes.append(f"{prefix}{c}")
-    url = "https://qt.gtimg.cn/q=" + ",".join(qq_codes)
+    url = tencent_realtime_url(qq_codes)
     try:
-        r = requests.get(url, headers=TENCENT_HEADERS, timeout=8)
+        r = requests.get(url, headers=TENCENT_HEADERS, timeout=CONFIG["network"]["timeouts"]["tencent_realtime"])
         r.encoding = "gbk"
         text = r.text
     except Exception as e:
@@ -147,7 +144,7 @@ def fetch_via_tencent(codes: List[str]) -> List[Dict]:
                 "ask1": round(float(f[19] or 0), 4),
                 "turnover": float(f[38] or 0),
                 "source": "tencent",
-                "updated": f[30][8:14] if len(f[30]) >= 14 else datetime.now().strftime("%H%M%S"),
+                "updated": f[30][8:14] if len(f[30]) >= 14 else now_str("quote_updated_compact_format"),
             })
         except (ValueError, IndexError) as e:
             print(f"[tencent] 解析失败：{e}")
@@ -158,7 +155,7 @@ def fetch_via_tencent(codes: List[str]) -> List[Dict]:
 # ---- 统一查询 ----
 _cache = {}
 _cache_lock = threading.Lock()
-CACHE_TTL = 5
+CACHE_TTL = int(CONFIG["server"]["quote_cache_ttl_seconds"])
 
 
 def fetch_quotes(codes: List[str], prefer: str = "auto") -> Dict:
@@ -204,7 +201,7 @@ def fetch_quotes(codes: List[str], prefer: str = "auto") -> Dict:
             "primary": primary_source or "tencent",
             "fallback_used": bool(tencent_data) and primary_source == "mootdx",
         },
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "timestamp": now_str("timestamp_format"),
     }
     with _cache_lock:
         _cache[cache_key] = {"t": now, "data": result}
@@ -236,9 +233,9 @@ def index():
       <li><a href="/quote?codes=513130&prefer=tencent">/quote?codes=513130&prefer=tencent</a> — 强制腾讯源</li>
       <li><a href="/health">/health</a></li>
     </ul>
-    <p>在 claude.ai 监控工具中填入：<code>http://localhost:5678</code></p>
+    <p>在 claude.ai 监控工具中填入：<code>__QUOTE_BASE_URL__</code></p>
     </body></html>
-    """
+    """.replace("__QUOTE_BASE_URL__", app_base_url("quote_port"))
 
 
 @app.route("/quote")
@@ -256,7 +253,7 @@ def health():
     return jsonify({
         "status": "ok",
         "mootdx_available": get_mootdx_client() is not None,
-        "time": datetime.now().isoformat(timespec="seconds"),
+        "time": now_str("timestamp_format"),
     })
 
 
@@ -264,8 +261,9 @@ if __name__ == "__main__":
     print("=" * 56)
     print("📈 ETF 实时行情服务")
     print("=" * 56)
-    print("地址  : http://localhost:5678")
-    print("测试  : http://localhost:5678/quote?codes=513130,518850")
+    base_url = app_base_url("quote_port")
+    print(f"地址  : {base_url}")
+    print(f"测试  : {base_url}/quote?codes=513130,518850")
     print("数据源: mootdx（主）+ 腾讯财经（备）")
     print("=" * 56)
-    app.run(host="0.0.0.0", port=5678, debug=False)
+    app.run(host=CONFIG["server"]["host"], port=int(CONFIG["server"]["quote_port"]), debug=bool(CONFIG["server"]["debug"]))

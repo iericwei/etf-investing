@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ETF 选股日报</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">ETF <em>选股</em>日报</div>
+  <div class="date-chip" id="dateChip">—</div>
+  <div class="spacer"></div>
+  <div class="update-time" id="updateTime"></div>
+  <button class="btn" id="btnRefresh" onclick="doRefresh()">↺ 刷新</button>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="stat-label">全市场ETF</div><div class="stat-value" id="sTotal">—</div></div>
+  <div class="stat"><div class="stat-label">流动性筛选</div><div class="stat-value" id="sScanned">—</div></div>
+  <div class="stat"><div class="stat-label">本日优选</div><div class="stat-value" id="sSelected">—</div></div>
+  <div class="stat"><div class="stat-label">最高评分</div><div class="stat-value" id="sTop">—</div></div>
+  <div class="stat"><div class="stat-label">数据状态</div><div class="stat-value" id="sStatus" style="font-size:14px">初始化…</div></div>
+</div>
+
+<div class="tab-bar" id="tabBar"><div class="tab-inner" id="tabInner"></div></div>
+
+<main>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="loadMsg">正在获取全市场 ETF 列表…</div>
+  </div>
+
+  <div id="error-box"></div>
+
+  <div id="table-section">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="r">#</th>
+            <th>代码</th>
+            <th>名称</th>
+            <th>类别</th>
+            <th class="r">现价</th>
+            <th class="r">今日</th>
+            <th class="r">3日</th>
+            <th class="r">5日</th>
+            <th class="r">10日</th>
+            <th class="r">RSI</th>
+            <th class="r">量比</th>
+            <th>信号</th>
+            <th class="r">评分↓</th>
+            <th style="text-align:center">持仓</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="holdings-panel">
+      <div class="hp-header">
+        <span class="hp-title">持仓实时监控</span>
+        <span class="hp-ts" id="hpTs"></span>
+        <span class="hp-hint">每 2 分钟自动刷新实时行情 · 信号基于最近一次全市场扫描</span>
+        <span class="hp-countdown" id="hpCountdown"></span>
+        <button class="btn" onclick="refreshHoldings()">↺ 立即刷新</button>
+      </div>
+      <div id="hpBody"></div>
+    </div>
+
+    <div class="legend">
+      <span><strong>因子权重</strong>：动量 35% · 量能 25% · 技术 25% · 趋势 15%</span>
+      <span><strong>硬过滤</strong>：RSI > 82 | 5日跌幅 > 9% | 破 MA20 且持续下跌</span>
+      <span><strong>信号</strong>：↑ 均线多头 · ⚡ MACD 看多 · 🔥 量比≥1.5x · 超卖回弹</span>
+      <span style="color:#f85149"><strong>风险提示</strong>：仅供参考，不构成投资建议</span>
+    </div>
+  </div>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -42,15 +42,38 @@ numpy
 etf-investing/
 ├── etf_daily.py       # 命令行 ETF 每日选股报告入口
 ├── etf_web.py         # Web Dashboard + 选股 API + 持仓管理 API
+├── web/               # 前端静态资源目录
+│   ├── index.html     # Web Dashboard 页面结构
+│   └── static/
+│       ├── app.css    # Web Dashboard 样式
+│       └── app.js     # Web Dashboard 前端逻辑
 ├── etf_server.py      # 独立实时行情 API 服务
 ├── etf_data.py        # 历史 K 线与实时行情数据获取层
 ├── etf_strategy.py    # 技术指标、多因子评分、卖出信号模型
 ├── etf_universe.py    # 全市场 ETF 列表获取、分类、流动性过滤与缓存
+├── etf_config.py      # 集中配置加载模块，读取 config.json 并提供默认值
 ├── etf_pool.py        # 静态 ETF 候选池，作为全市场接口失败时的降级数据
+├── config.json        # URL、端口、超时、时间格式、刷新间隔等运行配置
 ├── requirements.txt   # Python 依赖
 ├── holdings.json      # Web Dashboard 持仓/关注列表
 └── .universe_cache.json # 当日 ETF 全市场列表缓存，自动生成/更新
 ```
+
+## 配置说明
+
+项目运行配置集中在 `config.json`，由 `etf_config.py` 加载。配置文件中以 `_comment` 或 `_comment_xxx` 命名的字段是说明文字，仅用于阅读，不参与业务逻辑。
+
+主要配置分组：
+
+- `urls`：东方财富 ETF 列表接口、腾讯历史 K 线接口、腾讯实时行情接口。
+- `headers`：请求外部数据源时使用的 Referer 和 User-Agent。
+- `network.timeouts`：外部接口请求超时时间，单位秒。
+- `selection`：成交额门槛、扫描数量、历史 K 线天数、并发线程数、评分数量等。
+- `server`：Web Dashboard 端口、独立行情服务端口、监听地址、行情缓存 TTL、debug 开关。
+- `time`：日期、时间戳、报告标题、行情更新时间格式。
+- `web`：前端轮询间隔、持仓刷新间隔、交易时段自动刷新窗口。
+
+修改 `config.json` 后需要重启对应服务才能生效。
 
 ## 安装
 
@@ -115,7 +138,13 @@ python etf_web.py
 http://localhost:8080
 ```
 
-Dashboard 提供：
+Web Dashboard 采用前后端分离结构：
+
+- 后端：`etf_web.py` 提供 API 和静态文件服务。
+- 前端：`web/index.html`、`web/static/app.css`、`web/static/app.js`。
+- 前端运行时配置通过 `/api/config` 获取，不再由后端拼接 HTML。
+
+Web Dashboard 提供：
 
 - 今日 ETF 优选排名。
 - 分类 Tab 筛选。
@@ -129,6 +158,7 @@ Web Dashboard 相关 API：
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/select` | 获取选股结果；若今日缓存不存在，会后台触发扫描 |
+| GET | `/api/config` | 获取前端运行时配置，如轮询间隔、自动刷新时间窗口 |
 | GET | `/api/refresh` | 强制刷新今日选股结果 |
 | GET | `/api/holdings` | 获取本地持仓/关注 ETF 代码列表 |
 | POST | `/api/holdings/toggle` | 添加或移除某只 ETF，JSON: `{ "code": "513130" }` |
