@@ -1,707 +1,428 @@
 {
-  "date": "2026-05-17",
+  "date": "2026-05-18",
   "data": [
     {
-      "code": "510500",
-      "name": "中证500ETF南方",
-      "category": "宽基",
-      "market": "sh",
-      "price": 8.612,
-      "change_pct": -1.82,
-      "amount": 11374703475.0
-    },
-    {
-      "code": "513310",
-      "name": "中韩半导体ETF华泰柏瑞",
+      "code": "588200",
+      "name": "科创芯片ETF嘉实",
       "category": "科技",
       "market": "sh",
-      "price": 6.005,
-      "change_pct": -3.72,
-      "amount": 8889287200.0
+      "price": 3.519,
+      "change_pct": 2.83,
+      "amount": 1760910341.0
     },
     {
       "code": "588000",
       "name": "科创50ETF华夏",
       "category": "宽基",
       "market": "sh",
-      "price": 1.787,
-      "change_pct": -1.54,
-      "amount": 7958614084.0
-    },
-    {
-      "code": "588200",
-      "name": "科创芯片ETF嘉实",
-      "category": "科技",
-      "market": "sh",
-      "price": 3.422,
-      "change_pct": -1.75,
-      "amount": 7518612074.0
+      "price": 1.828,
+      "change_pct": 2.29,
+      "amount": 1730794869.0
     },
     {
       "code": "159915",
       "name": "创业板ETF易方达",
       "category": "宽基",
       "market": "sz",
-      "price": 3.97,
-      "change_pct": 0.23,
-      "amount": 7510651174.562
-    },
-    {
-      "code": "518880",
-      "name": "黄金ETF华安",
-      "category": "商品",
-      "market": "sh",
-      "price": 9.554,
-      "change_pct": -2.46,
-      "amount": 6233847911.0
-    },
-    {
-      "code": "513130",
-      "name": "恒生科技ETF华泰柏瑞",
-      "category": "港股",
-      "market": "sh",
-      "price": 0.619,
-      "change_pct": -2.83,
-      "amount": 5862269402.0
-    },
-    {
-      "code": "513180",
-      "name": "恒生科技ETF华夏",
-      "category": "港股",
-      "market": "sh",
-      "price": 0.629,
-      "change_pct": -2.63,
-      "amount": 5443263990.0
-    },
-    {
-      "code": "510300",
-      "name": "沪深300ETF华泰柏瑞",
-      "category": "宽基",
-      "market": "sh",
-      "price": 4.878,
-      "change_pct": -1.28,
-      "amount": 5135152285.0
+      "price": 3.951,
+      "change_pct": -0.48,
+      "amount": 1475795337.0
     },
     {
       "code": "563360",
       "name": "A500ETF华泰柏瑞",
       "category": "主题",
       "market": "sh",
-      "price": 1.365,
-      "change_pct": -1.52,
-      "amount": 5111713503.0
+      "price": 1.368,
+      "change_pct": 0.22,
+      "amount": 1462814883.0
+    },
+    {
+      "code": "518880",
+      "name": "黄金ETF华安",
+      "category": "商品",
+      "market": "sh",
+      "price": 9.499,
+      "change_pct": -0.58,
+      "amount": 1139242126.0
     },
     {
       "code": "159352",
       "name": "A500ETF南方",
       "category": "主题",
       "market": "sz",
-      "price": 1.344,
-      "change_pct": -1.39,
-      "amount": 5042710931.022
+      "price": 1.347,
+      "change_pct": 0.22,
+      "amount": 1054791804.8
     },
     {
-      "code": "159338",
-      "name": "中证A500ETF国泰",
-      "category": "宽基",
-      "market": "sz",
-      "price": 1.295,
-      "change_pct": -1.22,
-      "amount": 4860561917.243
-    },
-    {
-      "code": "513090",
-      "name": "香港证券ETF易方达",
-      "category": "金融",
+      "code": "513180",
+      "name": "恒生科技ETF华夏",
+      "category": "港股",
       "market": "sh",
-      "price": 1.798,
-      "change_pct": -1.8,
-      "amount": 4669739933.0
+      "price": 0.622,
+      "change_pct": -1.11,
+      "amount": 1027106554.0
     },
     {
-      "code": "515880",
-      "name": "通信ETF国泰",
-      "category": "科技",
+      "code": "513130",
+      "name": "恒生科技ETF华泰柏瑞",
+      "category": "港股",
       "market": "sh",
-      "price": 1.5,
-      "change_pct": -2.85,
-      "amount": 4359051911.0
+      "price": 0.612,
+      "change_pct": -1.13,
+      "amount": 1024289225.0
     },
     {
       "code": "159516",
       "name": "半导体设备ETF国泰",
       "category": "科技",
       "market": "sz",
-      "price": 1.194,
-      "change_pct": 4.55,
-      "amount": 4056905863.338
+      "price": 1.234,
+      "change_pct": 3.35,
+      "amount": 1018501372.4
     },
     {
-      "code": "512100",
-      "name": "中证1000ETF南方",
+      "code": "510500",
+      "name": "中证500ETF南方",
       "category": "宽基",
       "market": "sh",
-      "price": 3.488,
-      "change_pct": -1.16,
-      "amount": 3851089697.0
+      "price": 8.667,
+      "change_pct": 0.64,
+      "amount": 967280207.0
     },
     {
-      "code": "513120",
-      "name": "港股创新药ETF广发",
-      "category": "医药",
+      "code": "513090",
+      "name": "香港证券ETF易方达",
+      "category": "金融",
       "market": "sh",
-      "price": 1.149,
-      "change_pct": -1.54,
-      "amount": 3837668103.0
+      "price": 1.795,
+      "change_pct": -0.17,
+      "amount": 907127281.0
     },
     {
-      "code": "513350",
-      "name": "标普油气ETF富国",
-      "category": "海外",
+      "code": "515880",
+      "name": "通信ETF国泰",
+      "category": "科技",
       "market": "sh",
-      "price": 1.253,
-      "change_pct": 5.12,
-      "amount": 3666622103.0
-    },
-    {
-      "code": "510050",
-      "name": "上证50ETF华夏",
-      "category": "宽基",
-      "market": "sh",
-      "price": 3.035,
-      "change_pct": -1.27,
-      "amount": 3383669380.0
+      "price": 1.515,
+      "change_pct": 1.0,
+      "amount": 884877334.0
     },
     {
       "code": "512050",
       "name": "A500ETF华夏",
       "category": "主题",
       "market": "sh",
-      "price": 1.286,
-      "change_pct": -1.46,
-      "amount": 3363745070.0
+      "price": 1.289,
+      "change_pct": 0.23,
+      "amount": 829972857.0
     },
     {
-      "code": "159518",
-      "name": "标普油气ETF嘉实",
-      "category": "海外",
-      "market": "sz",
-      "price": 1.172,
-      "change_pct": 3.26,
-      "amount": 3144027260.69
-    },
-    {
-      "code": "513330",
-      "name": "恒生互联网ETF华夏",
-      "category": "科技",
-      "market": "sh",
-      "price": 0.425,
-      "change_pct": -2.52,
-      "amount": 2855629801.0
-    },
-    {
-      "code": "159949",
-      "name": "创业板50ETF华安",
+      "code": "159338",
+      "name": "中证A500ETF国泰",
       "category": "宽基",
       "market": "sz",
-      "price": 1.892,
-      "change_pct": -0.73,
-      "amount": 2807566564.325
-    },
-    {
-      "code": "512480",
-      "name": "半导体ETF国联安",
-      "category": "科技",
-      "market": "sh",
-      "price": 2.035,
-      "change_pct": -0.39,
-      "amount": 2790561832.0
-    },
-    {
-      "code": "159326",
-      "name": "电网设备ETF华夏",
-      "category": "主题",
-      "market": "sz",
-      "price": 2.042,
-      "change_pct": -3.27,
-      "amount": 2619983614.912
-    },
-    {
-      "code": "513050",
-      "name": "中概互联网ETF易方达",
-      "category": "科技",
-      "market": "sh",
-      "price": 1.19,
-      "change_pct": -2.38,
-      "amount": 2602769854.0
-    },
-    {
-      "code": "588080",
-      "name": "科创50ETF易方达",
-      "category": "宽基",
-      "market": "sh",
-      "price": 1.733,
-      "change_pct": -1.65,
-      "amount": 2452368853.0
-    },
-    {
-      "code": "562500",
-      "name": "机器人ETF华夏",
-      "category": "主题",
-      "market": "sh",
-      "price": 1.164,
-      "change_pct": 3.19,
-      "amount": 2434847669.0
-    },
-    {
-      "code": "159845",
-      "name": "中证1000ETF华夏",
-      "category": "宽基",
-      "market": "sz",
-      "price": 3.588,
-      "change_pct": -1.24,
-      "amount": 2421001203.588
-    },
-    {
-      "code": "512880",
-      "name": "证券ETF国泰",
-      "category": "金融",
-      "market": "sh",
-      "price": 1.048,
-      "change_pct": -2.15,
-      "amount": 2363821021.0
-    },
-    {
-      "code": "588170",
-      "name": "科创半导体ETF华夏",
-      "category": "科技",
-      "market": "sh",
-      "price": 2.415,
-      "change_pct": 4.68,
-      "amount": 2350100584.0
-    },
-    {
-      "code": "159570",
-      "name": "港股通创新药ETF汇添富",
-      "category": "医药",
-      "market": "sz",
-      "price": 1.438,
-      "change_pct": -2.04,
-      "amount": 2247711252.108
-    },
-    {
-      "code": "159941",
-      "name": "纳指ETF广发",
-      "category": "海外",
-      "market": "sz",
-      "price": 1.564,
-      "change_pct": -0.82,
-      "amount": 2223669950.085
+      "price": 1.296,
+      "change_pct": 0.08,
+      "amount": 748059451.073
     },
     {
       "code": "159206",
       "name": "卫星ETF永赢",
       "category": "主题",
       "market": "sz",
-      "price": 1.836,
-      "change_pct": -2.86,
-      "amount": 2185661508.938
+      "price": 1.887,
+      "change_pct": 2.78,
+      "amount": 713673621.116
     },
     {
-      "code": "159361",
-      "name": "A500ETF易方达",
-      "category": "主题",
-      "market": "sz",
-      "price": 1.321,
-      "change_pct": -1.34,
-      "amount": 2126882863.685
-    },
-    {
-      "code": "159740",
-      "name": "恒生科技ETF大成",
-      "category": "港股",
-      "market": "sz",
-      "price": 0.621,
-      "change_pct": -2.82,
-      "amount": 2057292821.814
-    },
-    {
-      "code": "159934",
-      "name": "黄金ETF易方达",
-      "category": "商品",
-      "market": "sz",
-      "price": 9.982,
-      "change_pct": -2.41,
-      "amount": 1938989973.626
-    },
-    {
-      "code": "159792",
-      "name": "港股通互联网ETF富国",
+      "code": "512480",
+      "name": "半导体ETF国联安",
       "category": "科技",
-      "market": "sz",
-      "price": 0.673,
-      "change_pct": -3.3,
-      "amount": 1880191771.162
-    },
-    {
-      "code": "159530",
-      "name": "机器人ETF易方达",
-      "category": "主题",
-      "market": "sz",
-      "price": 1.651,
-      "change_pct": 5.29,
-      "amount": 1810668868.313
-    },
-    {
-      "code": "159363",
-      "name": "创业板人工智能ETF华宝",
-      "category": "科技",
-      "market": "sz",
-      "price": 1.387,
-      "change_pct": -1.14,
-      "amount": 1699547446.539
-    },
-    {
-      "code": "159937",
-      "name": "黄金ETF博时",
-      "category": "商品",
-      "market": "sz",
-      "price": 9.532,
-      "change_pct": -2.45,
-      "amount": 1662443520.6
-    },
-    {
-      "code": "513010",
-      "name": "恒生科技ETF易方达",
-      "category": "港股",
       "market": "sh",
-      "price": 0.649,
-      "change_pct": -2.7,
-      "amount": 1643960310.0
+      "price": 2.099,
+      "change_pct": 3.14,
+      "amount": 695527923.0
     },
     {
       "code": "159995",
       "name": "芯片ETF华夏",
       "category": "科技",
       "market": "sz",
-      "price": 2.315,
-      "change_pct": -0.26,
-      "amount": 1499600892.254
+      "price": 2.398,
+      "change_pct": 3.59,
+      "amount": 632479788.285
     },
     {
-      "code": "512400",
-      "name": "有色金属ETF南方",
-      "category": "商品",
-      "market": "sh",
-      "price": 2.039,
-      "change_pct": -4.27,
-      "amount": 1459357359.0
-    },
-    {
-      "code": "513100",
-      "name": "纳指ETF国泰",
-      "category": "海外",
-      "market": "sh",
-      "price": 2.1,
-      "change_pct": -0.24,
-      "amount": 1454988656.0
-    },
-    {
-      "code": "159509",
-      "name": "纳指科技ETF景顺",
-      "category": "海外",
-      "market": "sz",
-      "price": 2.554,
-      "change_pct": -1.2,
-      "amount": 1441955336.659
-    },
-    {
-      "code": "159922",
-      "name": "中证500ETF嘉实",
-      "category": "宽基",
-      "market": "sz",
-      "price": 3.427,
-      "change_pct": -1.69,
-      "amount": 1401095702.719
-    },
-    {
-      "code": "159919",
-      "name": "沪深300ETF嘉实",
-      "category": "宽基",
-      "market": "sz",
-      "price": 5.087,
-      "change_pct": -1.05,
-      "amount": 1357572678.452
-    },
-    {
-      "code": "159870",
-      "name": "化工ETF鹏华",
-      "category": "商品",
-      "market": "sz",
-      "price": 0.896,
-      "change_pct": 0.0,
-      "amount": 1340422634.775
-    },
-    {
-      "code": "512000",
-      "name": "券商ETF华宝",
-      "category": "金融",
-      "market": "sh",
-      "price": 0.501,
-      "change_pct": -2.15,
-      "amount": 1276229561.0
-    },
-    {
-      "code": "510310",
-      "name": "沪深300ETF易方达",
-      "category": "宽基",
-      "market": "sh",
-      "price": 4.722,
-      "change_pct": -1.25,
-      "amount": 1202239665.0
-    },
-    {
-      "code": "159819",
-      "name": "人工智能ETF易方达",
-      "category": "科技",
-      "market": "sz",
-      "price": 1.943,
-      "change_pct": -2.61,
-      "amount": 1138632818.698
-    },
-    {
-      "code": "159131",
-      "name": "港股通信息技术ETF华宝",
-      "category": "科技",
-      "market": "sz",
-      "price": 0.937,
-      "change_pct": -4.0,
-      "amount": 1091650705.308
-    },
-    {
-      "code": "159755",
-      "name": "电池ETF广发",
-      "category": "主题",
-      "market": "sz",
-      "price": 1.168,
-      "change_pct": -0.51,
-      "amount": 1078014701.817
-    },
-    {
-      "code": "515790",
-      "name": "光伏ETF华泰柏瑞",
-      "category": "新能源",
-      "market": "sh",
-      "price": 1.108,
-      "change_pct": -1.77,
-      "amount": 1054837506.0
-    },
-    {
-      "code": "513750",
-      "name": "港股通非银ETF广发",
-      "category": "港股",
-      "market": "sh",
-      "price": 1.589,
-      "change_pct": -1.24,
-      "amount": 1041078703.0
-    },
-    {
-      "code": "515220",
-      "name": "煤炭ETF国泰",
-      "category": "商品",
-      "market": "sh",
-      "price": 1.231,
-      "change_pct": 1.57,
-      "amount": 1029051646.0
-    },
-    {
-      "code": "159967",
-      "name": "创业板成长ETF华夏",
-      "category": "宽基",
-      "market": "sz",
-      "price": 0.87,
-      "change_pct": -1.25,
-      "amount": 984930027.316
-    },
-    {
-      "code": "513300",
-      "name": "纳斯达克ETF华夏",
-      "category": "主题",
-      "market": "sh",
-      "price": 2.548,
-      "change_pct": -0.93,
-      "amount": 968309187.0
-    },
-    {
-      "code": "562950",
-      "name": "消费电子ETF易方达",
-      "category": "消费",
-      "market": "sh",
-      "price": 1.613,
-      "change_pct": -1.53,
-      "amount": 951459471.0
-    },
-    {
-      "code": "515050",
-      "name": "通信ETF华夏",
-      "category": "科技",
-      "market": "sh",
-      "price": 1.108,
-      "change_pct": -2.21,
-      "amount": 939203338.0
-    },
-    {
-      "code": "159567",
-      "name": "港股创新药ETF银华",
-      "category": "医药",
-      "market": "sz",
-      "price": 0.699,
-      "change_pct": -2.1,
-      "amount": 936939627.992
-    },
-    {
-      "code": "510330",
-      "name": "沪深300ETF华夏",
-      "category": "宽基",
-      "market": "sh",
-      "price": 5.079,
-      "change_pct": -1.19,
-      "amount": 901161693.0
-    },
-    {
-      "code": "512690",
-      "name": "酒ETF鹏华",
-      "category": "消费",
-      "market": "sh",
-      "price": 0.455,
-      "change_pct": -2.36,
-      "amount": 890710224.0
-    },
-    {
-      "code": "159633",
-      "name": "中证1000ETF易方达",
-      "category": "宽基",
-      "market": "sz",
-      "price": 3.667,
-      "change_pct": -1.29,
-      "amount": 874111656.297
-    },
-    {
-      "code": "518850",
-      "name": "黄金ETF华夏",
-      "category": "商品",
-      "market": "sh",
-      "price": 9.642,
-      "change_pct": -2.44,
-      "amount": 865978272.0
-    },
-    {
-      "code": "563300",
-      "name": "中证2000ETF华泰柏瑞",
-      "category": "宽基",
-      "market": "sh",
-      "price": 1.617,
-      "change_pct": -0.86,
-      "amount": 865435230.0
-    },
-    {
-      "code": "512890",
-      "name": "红利低波ETF华泰柏瑞",
-      "category": "红利",
-      "market": "sh",
-      "price": 1.167,
-      "change_pct": -0.77,
-      "amount": 852961778.0
-    },
-    {
-      "code": "159770",
-      "name": "机器人ETF天弘",
-      "category": "主题",
-      "market": "sz",
-      "price": 1.205,
-      "change_pct": 3.26,
-      "amount": 834141904.302
-    },
-    {
-      "code": "520500",
-      "name": "恒生创新药ETF华泰柏瑞",
+      "code": "513120",
+      "name": "港股创新药ETF广发",
       "category": "医药",
       "market": "sh",
-      "price": 1.42,
-      "change_pct": -2.07,
-      "amount": 826491690.0
+      "price": 1.131,
+      "change_pct": -1.57,
+      "amount": 624198510.0
     },
     {
-      "code": "159952",
-      "name": "创业板ETF广发",
+      "code": "510300",
+      "name": "沪深300ETF华泰柏瑞",
       "category": "宽基",
-      "market": "sz",
-      "price": 2.389,
-      "change_pct": -0.71,
-      "amount": 813395575.888
+      "market": "sh",
+      "price": 4.875,
+      "change_pct": -0.06,
+      "amount": 610309904.0
     },
     {
-      "code": "159262",
-      "name": "港股通科技ETF广发",
-      "category": "港股",
-      "market": "sz",
-      "price": 0.906,
-      "change_pct": -3.21,
-      "amount": 806662664.632
+      "code": "588170",
+      "name": "科创半导体ETF华夏",
+      "category": "科技",
+      "market": "sh",
+      "price": 2.487,
+      "change_pct": 2.98,
+      "amount": 577344341.0
     },
     {
-      "code": "588220",
-      "name": "科创100ETF鹏华",
+      "code": "159530",
+      "name": "机器人ETF易方达",
+      "category": "主题",
+      "market": "sz",
+      "price": 1.674,
+      "change_pct": 1.39,
+      "amount": 545414035.338
+    },
+    {
+      "code": "588080",
+      "name": "科创50ETF易方达",
+      "category": "宽基",
+      "market": "sh",
+      "price": 1.773,
+      "change_pct": 2.31,
+      "amount": 532289360.0
+    },
+    {
+      "code": "513330",
+      "name": "恒生互联网ETF华夏",
+      "category": "科技",
+      "market": "sh",
+      "price": 0.42,
+      "change_pct": -1.18,
+      "amount": 527115755.0
+    },
+    {
+      "code": "159792",
+      "name": "港股通互联网ETF富国",
+      "category": "科技",
+      "market": "sz",
+      "price": 0.664,
+      "change_pct": -1.34,
+      "amount": 513819174.437
+    },
+    {
+      "code": "513050",
+      "name": "中概互联网ETF易方达",
+      "category": "科技",
+      "market": "sh",
+      "price": 1.181,
+      "change_pct": -0.76,
+      "amount": 509102819.0
+    },
+    {
+      "code": "159941",
+      "name": "纳指ETF广发",
+      "category": "海外",
+      "market": "sz",
+      "price": 1.543,
+      "change_pct": -1.34,
+      "amount": 505183695.834
+    },
+    {
+      "code": "159361",
+      "name": "A500ETF易方达",
+      "category": "主题",
+      "market": "sz",
+      "price": 1.32,
+      "change_pct": -0.08,
+      "amount": 504736497.533
+    },
+    {
+      "code": "512100",
+      "name": "中证1000ETF南方",
+      "category": "宽基",
+      "market": "sh",
+      "price": 3.513,
+      "change_pct": 0.72,
+      "amount": 501142128.0
+    },
+    {
+      "code": "562500",
+      "name": "机器人ETF华夏",
       "category": "主题",
       "market": "sh",
-      "price": 1.777,
-      "change_pct": -0.5,
-      "amount": 805328649.0
+      "price": 1.181,
+      "change_pct": 1.46,
+      "amount": 487517309.0
+    },
+    {
+      "code": "513010",
+      "name": "恒生科技ETF易方达",
+      "category": "港股",
+      "market": "sh",
+      "price": 0.642,
+      "change_pct": -1.08,
+      "amount": 477215655.0
+    },
+    {
+      "code": "159949",
+      "name": "创业板50ETF华安",
+      "category": "宽基",
+      "market": "sz",
+      "price": 1.899,
+      "change_pct": 0.37,
+      "amount": 446127974.55
     },
     {
       "code": "159558",
       "name": "半导体设备ETF易方达",
       "category": "科技",
       "market": "sz",
-      "price": 2.805,
-      "change_pct": 4.63,
-      "amount": 799020606.152
+      "price": 2.896,
+      "change_pct": 3.24,
+      "amount": 431437657.44
     },
     {
-      "code": "159992",
-      "name": "创新药ETF银华",
-      "category": "医药",
-      "market": "sz",
-      "price": 0.798,
-      "change_pct": -0.62,
-      "amount": 790810911.125
-    },
-    {
-      "code": "518800",
-      "name": "黄金ETF国泰",
-      "category": "商品",
-      "market": "sh",
-      "price": 10.019,
-      "change_pct": -2.43,
-      "amount": 782059038.0
-    },
-    {
-      "code": "159901",
-      "name": "深证100ETF易方达",
-      "category": "宽基",
-      "market": "sz",
-      "price": 3.946,
-      "change_pct": -0.83,
-      "amount": 779366980.343
-    },
-    {
-      "code": "159611",
-      "name": "电力ETF广发",
+      "code": "159326",
+      "name": "电网设备ETF华夏",
       "category": "主题",
       "market": "sz",
-      "price": 1.163,
-      "change_pct": -0.85,
-      "amount": 772515284.837
+      "price": 2.084,
+      "change_pct": 2.06,
+      "amount": 426154565.385
+    },
+    {
+      "code": "512880",
+      "name": "证券ETF国泰",
+      "category": "金融",
+      "market": "sh",
+      "price": 1.049,
+      "change_pct": 0.1,
+      "amount": 424800215.0
+    },
+    {
+      "code": "159570",
+      "name": "港股通创新药ETF汇添富",
+      "category": "医药",
+      "market": "sz",
+      "price": 1.413,
+      "change_pct": -1.74,
+      "amount": 418847237.3
+    },
+    {
+      "code": "159740",
+      "name": "恒生科技ETF大成",
+      "category": "港股",
+      "market": "sz",
+      "price": 0.614,
+      "change_pct": -1.13,
+      "amount": 410620757.4
+    },
+    {
+      "code": "513350",
+      "name": "标普油气ETF富国",
+      "category": "海外",
+      "market": "sh",
+      "price": 1.292,
+      "change_pct": 3.11,
+      "amount": 392578707.0
+    },
+    {
+      "code": "159845",
+      "name": "中证1000ETF华夏",
+      "category": "宽基",
+      "market": "sz",
+      "price": 3.613,
+      "change_pct": 0.7,
+      "amount": 384801144.5
+    },
+    {
+      "code": "159518",
+      "name": "标普油气ETF嘉实",
+      "category": "海外",
+      "market": "sz",
+      "price": 1.22,
+      "change_pct": 4.1,
+      "amount": 378572047.95
+    },
+    {
+      "code": "512400",
+      "name": "有色金属ETF南方",
+      "category": "商品",
+      "market": "sh",
+      "price": 2.007,
+      "change_pct": -1.57,
+      "amount": 373501033.0
+    },
+    {
+      "code": "510050",
+      "name": "上证50ETF华夏",
+      "category": "宽基",
+      "market": "sh",
+      "price": 3.024,
+      "change_pct": -0.36,
+      "amount": 371648853.0
+    },
+    {
+      "code": "159363",
+      "name": "创业板人工智能ETF华宝",
+      "category": "科技",
+      "market": "sz",
+      "price": 1.395,
+      "change_pct": 0.58,
+      "amount": 307911394.348
+    },
+    {
+      "code": "159934",
+      "name": "黄金ETF易方达",
+      "category": "商品",
+      "market": "sz",
+      "price": 9.924,
+      "change_pct": -0.58,
+      "amount": 300502587.666
+    },
+    {
+      "code": "513100",
+      "name": "纳指ETF国泰",
+      "category": "海外",
+      "market": "sh",
+      "price": 2.077,
+      "change_pct": -1.1,
+      "amount": 275739456.0
+    },
+    {
+      "code": "159937",
+      "name": "黄金ETF博时",
+      "category": "商品",
+      "market": "sz",
+      "price": 9.475,
+      "change_pct": -0.6,
+      "amount": 271413329.8
+    },
+    {
+      "code": "588290",
+      "name": "科创芯片ETF华安",
+      "category": "科技",
+      "market": "sh",
+      "price": 3.445,
+      "change_pct": 2.62,
+      "amount": 267284929.0
+    },
+    {
+      "code": "159967",
+      "name": "创业板成长ETF华夏",
+      "category": "宽基",
+      "market": "sz",
+      "price": 0.875,
+      "change_pct": 0.57,
+      "amount": 235732335.1
     },
     {
       "code": "159351",
@@ -709,152 +430,440 @@
       "category": "主题",
       "market": "sz",
       "price": 1.298,
-      "change_pct": -1.37,
-      "amount": 767467053.152
+      "change_pct": 0.0,
+      "amount": 234896163.1
     },
     {
-      "code": "159781",
-      "name": "科创创业ETF易方达",
-      "category": "主题",
-      "market": "sz",
-      "price": 1.203,
-      "change_pct": -0.99,
-      "amount": 766468973.994
-    },
-    {
-      "code": "513980",
-      "name": "港股科技ETF景顺",
-      "category": "港股",
-      "market": "sh",
-      "price": 0.638,
-      "change_pct": -2.6,
-      "amount": 765036678.0
-    },
-    {
-      "code": "512500",
-      "name": "中证500ETF华夏",
+      "code": "159922",
+      "name": "中证500ETF嘉实",
       "category": "宽基",
-      "market": "sh",
-      "price": 4.768,
-      "change_pct": -1.97,
-      "amount": 746382035.0
-    },
-    {
-      "code": "563230",
-      "name": "卫星ETF富国",
-      "category": "主题",
-      "market": "sh",
-      "price": 1.492,
-      "change_pct": -3.24,
-      "amount": 743257683.0
-    },
-    {
-      "code": "512800",
-      "name": "银行ETF华宝",
-      "category": "金融",
-      "market": "sh",
-      "price": 0.779,
-      "change_pct": -0.64,
-      "amount": 734447746.0
-    },
-    {
-      "code": "560010",
-      "name": "中证1000ETF广发",
-      "category": "宽基",
-      "market": "sh",
-      "price": 3.578,
-      "change_pct": -1.13,
-      "amount": 730517967.0
-    },
-    {
-      "code": "159566",
-      "name": "储能电池ETF易方达",
-      "category": "新能源",
       "market": "sz",
-      "price": 2.367,
-      "change_pct": -0.25,
-      "amount": 726823296.896
+      "price": 3.445,
+      "change_pct": 0.53,
+      "amount": 232603065.262
     },
     {
-      "code": "159316",
-      "name": "港股通创新药ETF易方达",
-      "category": "医药",
-      "market": "sz",
-      "price": 1.154,
-      "change_pct": -2.45,
-      "amount": 706750157.204
-    },
-    {
-      "code": "512760",
-      "name": "芯片ETF国泰",
-      "category": "科技",
-      "market": "sh",
-      "price": 1.092,
-      "change_pct": -0.73,
-      "amount": 701587852.0
-    },
-    {
-      "code": "159381",
-      "name": "创业板人工智能ETF华夏",
+      "code": "159819",
+      "name": "人工智能ETF易方达",
       "category": "科技",
       "market": "sz",
-      "price": 2.629,
-      "change_pct": -1.17,
-      "amount": 696567745.177
+      "price": 1.982,
+      "change_pct": 2.01,
+      "amount": 226882063.9
     },
     {
-      "code": "517520",
-      "name": "黄金股ETF永赢",
-      "category": "商品",
+      "code": "515050",
+      "name": "通信ETF华夏",
+      "category": "科技",
       "market": "sh",
-      "price": 2.049,
-      "change_pct": -4.83,
-      "amount": 693967274.0
+      "price": 1.129,
+      "change_pct": 1.9,
+      "amount": 210066261.0
     },
     {
       "code": "159813",
       "name": "半导体ETF鹏华",
       "category": "科技",
       "market": "sz",
-      "price": 1.479,
-      "change_pct": -0.4,
-      "amount": 693217935.588
+      "price": 1.532,
+      "change_pct": 3.58,
+      "amount": 206660596.344
     },
     {
-      "code": "510210",
-      "name": "上证指数ETF富国",
-      "category": "宽基",
+      "code": "512890",
+      "name": "红利低波ETF华泰柏瑞",
+      "category": "红利",
       "market": "sh",
-      "price": 1.039,
-      "change_pct": -0.86,
-      "amount": 677787141.0
+      "price": 1.16,
+      "change_pct": -0.6,
+      "amount": 206378810.0
     },
     {
-      "code": "518660",
-      "name": "黄金ETF工银",
+      "code": "159870",
+      "name": "化工ETF鹏华",
+      "category": "商品",
+      "market": "sz",
+      "price": 0.886,
+      "change_pct": -1.12,
+      "amount": 206085808.834
+    },
+    {
+      "code": "159381",
+      "name": "创业板人工智能ETF华夏",
+      "category": "科技",
+      "market": "sz",
+      "price": 2.641,
+      "change_pct": 0.46,
+      "amount": 201806581.6
+    },
+    {
+      "code": "515220",
+      "name": "煤炭ETF国泰",
       "category": "商品",
       "market": "sh",
-      "price": 9.575,
-      "change_pct": -2.46,
-      "amount": 669188166.0
+      "price": 1.225,
+      "change_pct": -0.49,
+      "amount": 199182909.0
     },
     {
-      "code": "588290",
-      "name": "科创芯片ETF华安",
+      "code": "513300",
+      "name": "纳斯达克ETF华夏",
+      "category": "主题",
+      "market": "sh",
+      "price": 2.517,
+      "change_pct": -1.22,
+      "amount": 195668601.0
+    },
+    {
+      "code": "588710",
+      "name": "科创半导体设备ETF华泰柏瑞",
       "category": "科技",
       "market": "sh",
-      "price": 3.357,
-      "change_pct": -1.64,
-      "amount": 641735695.0
+      "price": 2.575,
+      "change_pct": 2.96,
+      "amount": 193806266.0
+    },
+    {
+      "code": "512760",
+      "name": "芯片ETF国泰",
+      "category": "科技",
+      "market": "sh",
+      "price": 1.129,
+      "change_pct": 3.39,
+      "amount": 192581083.0
+    },
+    {
+      "code": "159131",
+      "name": "港股通信息技术ETF华宝",
+      "category": "科技",
+      "market": "sz",
+      "price": 0.949,
+      "change_pct": 1.28,
+      "amount": 190713504.674
+    },
+    {
+      "code": "562590",
+      "name": "半导体设备ETF华夏",
+      "category": "科技",
+      "market": "sh",
+      "price": 2.599,
+      "change_pct": 3.26,
+      "amount": 189374924.0
+    },
+    {
+      "code": "513770",
+      "name": "港股互联网ETF华宝",
+      "category": "科技",
+      "market": "sh",
+      "price": 0.407,
+      "change_pct": -1.21,
+      "amount": 183920994.0
+    },
+    {
+      "code": "159992",
+      "name": "创新药ETF银华",
+      "category": "医药",
+      "market": "sz",
+      "price": 0.788,
+      "change_pct": -1.25,
+      "amount": 181864220.8
+    },
+    {
+      "code": "518850",
+      "name": "黄金ETF华夏",
+      "category": "商品",
+      "market": "sh",
+      "price": 9.584,
+      "change_pct": -0.6,
+      "amount": 176175207.0
+    },
+    {
+      "code": "159567",
+      "name": "港股创新药ETF银华",
+      "category": "医药",
+      "market": "sz",
+      "price": 0.688,
+      "change_pct": -1.57,
+      "amount": 175921381.7
+    },
+    {
+      "code": "159755",
+      "name": "电池ETF广发",
+      "category": "主题",
+      "market": "sz",
+      "price": 1.172,
+      "change_pct": 0.34,
+      "amount": 175197053.05
+    },
+    {
+      "code": "518800",
+      "name": "黄金ETF国泰",
+      "category": "商品",
+      "market": "sh",
+      "price": 9.958,
+      "change_pct": -0.61,
+      "amount": 174904499.0
+    },
+    {
+      "code": "512000",
+      "name": "券商ETF华宝",
+      "category": "金融",
+      "market": "sh",
+      "price": 0.502,
+      "change_pct": 0.2,
+      "amount": 168838834.0
+    },
+    {
+      "code": "510880",
+      "name": "红利ETF华泰柏瑞",
+      "category": "红利",
+      "market": "sh",
+      "price": 3.202,
+      "change_pct": -0.65,
+      "amount": 164671282.0
+    },
+    {
+      "code": "563300",
+      "name": "中证2000ETF华泰柏瑞",
+      "category": "宽基",
+      "market": "sh",
+      "price": 1.623,
+      "change_pct": 0.37,
+      "amount": 161067452.0
+    },
+    {
+      "code": "517520",
+      "name": "黄金股ETF永赢",
+      "category": "商品",
+      "market": "sh",
+      "price": 2.001,
+      "change_pct": -2.34,
+      "amount": 159891367.0
     },
     {
       "code": "159659",
       "name": "纳斯达克100ETF招商",
       "category": "主题",
       "market": "sz",
-      "price": 2.21,
-      "change_pct": -0.9,
-      "amount": 624949588.996
+      "price": 2.182,
+      "change_pct": -1.27,
+      "amount": 158518574.962
+    },
+    {
+      "code": "563230",
+      "name": "卫星ETF富国",
+      "category": "主题",
+      "market": "sh",
+      "price": 1.533,
+      "change_pct": 2.75,
+      "amount": 157133335.0
+    },
+    {
+      "code": "159316",
+      "name": "港股通创新药ETF易方达",
+      "category": "医药",
+      "market": "sz",
+      "price": 1.137,
+      "change_pct": -1.47,
+      "amount": 153807053.7
+    },
+    {
+      "code": "159633",
+      "name": "中证1000ETF易方达",
+      "category": "宽基",
+      "market": "sz",
+      "price": 3.692,
+      "change_pct": 0.68,
+      "amount": 153486042.2
+    },
+    {
+      "code": "512170",
+      "name": "医疗ETF华宝",
+      "category": "医药",
+      "market": "sh",
+      "price": 0.325,
+      "change_pct": -0.61,
+      "amount": 145157035.0
+    },
+    {
+      "code": "159566",
+      "name": "储能电池ETF易方达",
+      "category": "新能源",
+      "market": "sz",
+      "price": 2.393,
+      "change_pct": 1.1,
+      "amount": 143236095.96
+    },
+    {
+      "code": "563800",
+      "name": "A500ETF广发",
+      "category": "主题",
+      "market": "sh",
+      "price": 1.292,
+      "change_pct": 0.31,
+      "amount": 141162195.0
+    },
+    {
+      "code": "588050",
+      "name": "科创50ETF工银",
+      "category": "宽基",
+      "market": "sh",
+      "price": 1.782,
+      "change_pct": 2.59,
+      "amount": 140914737.0
+    },
+    {
+      "code": "520500",
+      "name": "恒生创新药ETF华泰柏瑞",
+      "category": "医药",
+      "market": "sh",
+      "price": 1.402,
+      "change_pct": -1.27,
+      "amount": 140528586.0
+    },
+    {
+      "code": "159262",
+      "name": "港股通科技ETF广发",
+      "category": "港股",
+      "market": "sz",
+      "price": 0.902,
+      "change_pct": -0.44,
+      "amount": 137715786.5
+    },
+    {
+      "code": "159796",
+      "name": "电池ETF汇添富",
+      "category": "主题",
+      "market": "sz",
+      "price": 1.117,
+      "change_pct": 0.54,
+      "amount": 135988655.9
+    },
+    {
+      "code": "510310",
+      "name": "沪深300ETF易方达",
+      "category": "宽基",
+      "market": "sh",
+      "price": 4.718,
+      "change_pct": -0.08,
+      "amount": 134297968.0
+    },
+    {
+      "code": "588220",
+      "name": "科创100ETF鹏华",
+      "category": "主题",
+      "market": "sh",
+      "price": 1.805,
+      "change_pct": 1.58,
+      "amount": 133257779.0
+    },
+    {
+      "code": "512010",
+      "name": "医药ETF易方达",
+      "category": "医药",
+      "market": "sh",
+      "price": 0.352,
+      "change_pct": -1.12,
+      "amount": 129212733.0
+    },
+    {
+      "code": "159632",
+      "name": "纳斯达克ETF华安",
+      "category": "主题",
+      "market": "sz",
+      "price": 2.298,
+      "change_pct": -1.2,
+      "amount": 126119971.2
+    },
+    {
+      "code": "561980",
+      "name": "半导体设备ETF招商",
+      "category": "科技",
+      "market": "sh",
+      "price": 3.081,
+      "change_pct": 2.97,
+      "amount": 124581942.0
+    },
+    {
+      "code": "562950",
+      "name": "消费电子ETF易方达",
+      "category": "消费",
+      "market": "sh",
+      "price": 1.652,
+      "change_pct": 2.42,
+      "amount": 123706951.0
+    },
+    {
+      "code": "159892",
+      "name": "恒生医药ETF华夏",
+      "category": "医药",
+      "market": "sz",
+      "price": 0.706,
+      "change_pct": -1.67,
+      "amount": 123299977.3
+    },
+    {
+      "code": "560860",
+      "name": "工业有色ETF万家",
+      "category": "商品",
+      "market": "sh",
+      "price": 1.671,
+      "change_pct": -1.88,
+      "amount": 122861074.0
+    },
+    {
+      "code": "512500",
+      "name": "中证500ETF华夏",
+      "category": "宽基",
+      "market": "sh",
+      "price": 4.798,
+      "change_pct": 0.63,
+      "amount": 121283894.0
+    },
+    {
+      "code": "159387",
+      "name": "创业板新能源ETF国泰",
+      "category": "新能源",
+      "market": "sz",
+      "price": 0.951,
+      "change_pct": 0.63,
+      "amount": 120284553.1
+    },
+    {
+      "code": "515080",
+      "name": "中证红利ETF招商",
+      "category": "红利",
+      "market": "sh",
+      "price": 1.581,
+      "change_pct": -0.69,
+      "amount": 120072044.0
+    },
+    {
+      "code": "518660",
+      "name": "黄金ETF工银",
+      "category": "商品",
+      "market": "sh",
+      "price": 9.52,
+      "change_pct": -0.57,
+      "amount": 119872245.0
+    },
+    {
+      "code": "159801",
+      "name": "芯片ETF广发",
+      "category": "科技",
+      "market": "sz",
+      "price": 1.189,
+      "change_pct": 3.48,
+      "amount": 119839772.8
+    },
+    {
+      "code": "588780",
+      "name": "科创芯片设计ETF国联安",
+      "category": "科技",
+      "market": "sh",
+      "price": 1.143,
+      "change_pct": 2.6,
+      "amount": 119563889.0
     }
   ]
 }

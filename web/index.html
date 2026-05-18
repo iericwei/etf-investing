@@ -13,6 +13,7 @@
   <div class="date-chip" id="dateChip">—</div>
   <div class="spacer"></div>
   <div class="update-time" id="updateTime"></div>
+  <button class="btn" id="btnBacktest" onclick="runBacktest()">▶ 手动回测</button>
   <button class="btn" id="btnRefresh" onclick="doRefresh()">↺ 刷新</button>
 </header>
 
@@ -35,6 +36,13 @@
   <div id="error-box"></div>
 
   <div id="table-section">
+    <div class="list-toolbar">
+      <div class="add-watchlist">
+        <input id="watchCode" maxlength="6" inputmode="numeric" placeholder="添加代码，如 513130" onkeydown="if(event.key==='Enter') addWatchlist()">
+        <button class="btn" onclick="addWatchlist()">+ 添加到榜单</button>
+      </div>
+      <div class="toolbar-hint" id="backtestStatus">回测：收盘后自动执行，也可手动运行</div>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -54,7 +62,7 @@
             <th style="text-align:center">模型信号</th>
             <th class="r sortable" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')">回测1月<span class="sort-icon">↕</span></th>
             <th class="r sortable" data-sort="score" onclick="sortBy('score')">评分<span class="sort-icon">↕</span></th>
-            <th style="text-align:center">持仓</th>
+            <th style="text-align:center">操作</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -65,7 +73,7 @@
       <div class="hp-header">
         <span class="hp-title">持仓实时监控</span>
         <span class="hp-ts" id="hpTs"></span>
-        <span class="hp-hint">每 2 分钟自动刷新实时行情 · 信号基于最近一次全市场扫描</span>
+        <span class="hp-hint">每 30 秒自动刷新实时行情 · 信号基于最近一次全市场扫描</span>
         <span class="hp-countdown" id="hpCountdown"></span>
         <button class="btn" onclick="refreshHoldings()">↺ 立即刷新</button>
       </div>

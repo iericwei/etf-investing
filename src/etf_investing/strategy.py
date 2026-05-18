@@ -287,6 +287,7 @@ def select_top(
     top_n: int = 10,
     model_name: str | None = None,
     model_config: dict[str, Any] | None = None,
+    include_backtest: bool = True,
 ) -> List[dict]:
     """
     综合历史数据 + 实时行情评分，返回 top_n 个结果（已排序）。
@@ -357,9 +358,13 @@ def select_top(
         item["trade_signal"] = trade_signal
         item["buy_signal"] = trade_signal["action"] == "buy"
         item["sell_signal"] = trade_signal["action"] == "sell"
-        bt = backtest_model(enriched[code], window=22)
-        item["backtest"] = bt
-        item["backtest_return_pct"] = bt["return_pct"]
+        if include_backtest:
+            bt = backtest_model(enriched[code], window=22)
+            item["backtest"] = bt
+            item["backtest_return_pct"] = bt["return_pct"]
+        else:
+            item["backtest"] = None
+            item["backtest_return_pct"] = None
     return results
 
 

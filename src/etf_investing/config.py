@@ -118,7 +118,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "web": {
         "initial_load_hint_seconds": [60, 90],
         "selection_poll_interval_ms": 2500,
-        "holdings_refresh_seconds": 120,
+        "holdings_refresh_seconds": 30,
         "holdings_countdown_interval_ms": 1000,
         "auto_refresh_interval_ms": 10 * 60 * 1000,
         "auto_refresh_start_minute": 9 * 60 + 25,

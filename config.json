@@ -79,7 +79,7 @@
     "_comment_initial_load_hint_seconds": "启动提示中的首次加载预估耗时区间，单位秒。",
     "selection_poll_interval_ms": 2500,
     "_comment_selection_poll_interval_ms": "前端等待选股结果时轮询 /api/select 的间隔，单位毫秒。",
-    "holdings_refresh_seconds": 120,
+    "holdings_refresh_seconds": 30,
     "_comment_holdings_refresh_seconds": "持仓面板实时行情自动刷新间隔，单位秒。",
     "holdings_countdown_interval_ms": 1000,
     "_comment_holdings_countdown_interval_ms": "持仓刷新倒计时更新间隔，单位毫秒。",

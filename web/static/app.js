@@ -26,6 +26,7 @@ let _timer = null;
 let _allResults = [];
 let _activeCat = '全部';
 let _holdings = new Set();
+let _watchlist = new Set();
 let _holdingsTimer = null;
 let _holdingsCountdown = null;
 let _holdingsSecs = 0;
@@ -44,10 +45,18 @@ const SORT_LABELS = {
 };
 
 function pct(v) {
+  v = Number(v);
+  if (!Number.isFinite(v)) return '—';
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 }
 function pctCls(v) {
+  v = Number(v);
+  if (!Number.isFinite(v)) return 'neu';
   return v > 0.05 ? 'pos' : v < -0.05 ? 'neg' : 'neu';
+}
+function num(v, digits = 2) {
+  v = Number(v);
+  return Number.isFinite(v) ? v.toFixed(digits) : '—';
 }
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
@@ -141,6 +150,17 @@ function sellBadge(sell) {
   return `<div class="sell-wrap"><span class="sell-badge ${cls}">${sell.urgency || '—'}</span>${tip}</div>`;
 }
 function rankCls(n) { return n===1?'r1':n===2?'r2':n===3?'r3':''; }
+function rankCell(r) {
+  return r.is_custom ? '<span class="rank custom-rank">自选</span>' : `<span class="rank ${rankCls(r.rank)}">#${r.rank}</span>`;
+}
+function removeWatchBtn(r) {
+  if (!r.is_custom) return '';
+  const disabled = _holdings.has(r.code);
+  return `<button class="btn-remove-custom" ${disabled ? 'disabled title="持仓中的标的不能从榜单移除"' : `onclick="event.stopPropagation();removeWatchlist('${r.code}')" title="从榜单移除"`}>移除</button>`;
+}
+function actionBtns(r) {
+  return `<div class="row-actions">${holdBtn(r.code)}${removeWatchBtn(r)}</div>`;
+}
 
 function hideSellTip() {
   if (_floatingSellTip) {
@@ -212,6 +232,58 @@ async function toggleHolding(code) {
     _holdings = new Set(d.holdings || []);
     applyHoldings();
     buildTabs(_allResults);   // 更新持仓 Tab 计数
+    renderRows(currentList());
+  } catch(e) {}
+}
+
+async function loadWatchlist() {
+  try {
+    const d = await (await fetch('/api/watchlist')).json();
+    _watchlist = new Set(d.watchlist || []);
+  } catch(e) {}
+}
+
+async function addWatchlist() {
+  const input = document.getElementById('watchCode');
+  const code = (input?.value || '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    alert('请输入 6 位 ETF 代码');
+    return;
+  }
+  const res = await fetch('/api/watchlist', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code}),
+  }).catch(() => null);
+  if (!res) return;
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.ok === false) {
+    alert(d.error || '添加失败');
+    return;
+  }
+  _watchlist = new Set(d.watchlist || []);
+  if (input) input.value = '';
+  await reloadSelectOnce();
+}
+
+async function removeWatchlist(code) {
+  const res = await fetch(`/api/watchlist/${code}`, {method: 'DELETE'}).catch(() => null);
+  if (!res) return;
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.ok === false) {
+    alert(d.error || '移除失败');
+    return;
+  }
+  _watchlist = new Set(d.watchlist || []);
+  _allResults = _allResults.filter(r => !(r.code === code && r.is_custom));
+  buildTabs(_allResults);
+  renderRows(currentList());
+}
+
+async function reloadSelectOnce() {
+  try {
+    const data = await (await fetch('/api/select')).json();
+    if (data.status === 'ready') render(data);
   } catch(e) {}
 }
 
@@ -292,7 +364,7 @@ function _tickCountdown() {
 function startHoldingsTimer() {
   clearInterval(_holdingsTimer);
   clearInterval(_holdingsCountdown);
-  _holdingsSecs = 120;
+  _holdingsSecs = APP_CONFIG.holdingsRefreshSeconds;
   refreshHoldings();
   _holdingsTimer = setInterval(() => {
     _holdingsSecs = APP_CONFIG.holdingsRefreshSeconds;
@@ -414,28 +486,50 @@ function renderRows(list) {
   const rows = sortRows(list);
   document.getElementById('tbody').innerHTML = rows.map(r => `
     <tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
-      <td class="r"><span class="rank ${rankCls(r.rank)}">#${r.rank}</span></td>
+      <td class="r">${rankCell(r)}</td>
       <td><span class="code">${r.code}</span></td>
-      <td>${r.name}</td>
-      <td>${catBadge(r.category)}</td>
-      <td class="r">${r.price.toFixed(3)}</td>
+      <td>${esc(r.name)}</td>
+      <td>${catBadge(r.category || '自选')}</td>
+      <td class="r">${num(r.price, 3)}</td>
       <td class="r ${pctCls(r.change_pct)}">${pct(r.change_pct)}</td>
       <td class="r ${pctCls(r.ret3)}">${pct(r.ret3)}</td>
       <td class="r ${pctCls(r.ret5)}">${pct(r.ret5)}</td>
       <td class="r ${pctCls(r.ret10)}">${pct(r.ret10)}</td>
-      <td class="r ${rsiCls(r.rsi)}">${r.rsi.toFixed(1)}</td>
-      <td class="r">${r.vol_ratio.toFixed(2)}</td>
+      <td class="r ${rsiCls(Number(r.rsi) || 0)}">${num(r.rsi, 1)}</td>
+      <td class="r">${num(r.vol_ratio, 2)}</td>
       <td>${signals(r)}</td>
       <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
       <td class="r">${backtestCell(r)}</td>
       <td class="r">${scoreCell(r)}</td>
-      <td style="text-align:center">${holdBtn(r.code)}</td>
+      <td style="text-align:center">${actionBtns(r)}</td>
     </tr>`).join('');
   updateSortHeaders();
 }
 
+function updateBacktestStatus(backtest) {
+  const el = document.getElementById('backtestStatus');
+  const btn = document.getElementById('btnBacktest');
+  if (!el) return;
+  const st = backtest || {};
+  if (btn) btn.disabled = st.status === 'running';
+  if (st.status === 'running') {
+    el.textContent = '回测：运行中…';
+    el.style.color = '#e3b341';
+  } else if (st.status === 'ready') {
+    el.textContent = '回测：已更新 ' + (st.timestamp || '');
+    el.style.color = '#3fb950';
+  } else if (st.status === 'error') {
+    el.textContent = '回测：' + (st.error || '失败');
+    el.style.color = '#f85149';
+  } else {
+    el.textContent = '回测：收盘后自动执行，也可手动运行';
+    el.style.color = '';
+  }
+}
+
 function render(data) {
   _allResults = data.results || [];
+  _watchlist = new Set(data.watchlist || Array.from(_watchlist));
   document.getElementById('sTotal').textContent    = data.universe_total ? data.universe_total + '只' : '—';
   document.getElementById('sScanned').textContent  = data.scanned ? data.scanned + '只' : '—';
   document.getElementById('sSelected').textContent = _allResults.length;
@@ -444,6 +538,7 @@ function render(data) {
   sStatus.textContent = '实时'; sStatus.style.color = '#3fb950';
   if (data.timestamp) document.getElementById('updateTime').textContent = '更新于 ' + data.timestamp;
   if (data.date)      document.getElementById('dateChip').textContent   = data.date;
+  updateBacktestStatus(data.backtest);
 
   _activeCat = '全部';
   buildTabs(_allResults);
@@ -471,6 +566,7 @@ async function poll() {
   try {
     const res  = await fetch('/api/select');
     const data = await res.json();
+    if (data.backtest) updateBacktestStatus(data.backtest);
     if (data.status === 'ready') {
       clearInterval(_timer); _timer = null;
       render(data);
@@ -512,6 +608,28 @@ async function doRefresh() {
   startPolling();
 }
 
+async function runBacktest() {
+  const btn = document.getElementById('btnBacktest');
+  if (btn) btn.disabled = true;
+  updateBacktestStatus({status: 'running'});
+  await fetch('/api/backtest/run', {method: 'POST'}).catch(()=>{});
+  pollBacktestStatus();
+}
+
+async function pollBacktestStatus() {
+  try {
+    const st = await (await fetch('/api/backtest/status')).json();
+    updateBacktestStatus(st);
+    if (st.status === 'running') {
+      setTimeout(pollBacktestStatus, 2500);
+    } else if (st.status === 'ready') {
+      await reloadSelectOnce();
+    }
+  } catch(e) {
+    updateBacktestStatus({status: 'error', error: e.message});
+  }
+}
+
 function startAutoRefresh() {
   setInterval(() => {
     const m = new Date(); const t = m.getHours()*60 + m.getMinutes();
@@ -523,6 +641,7 @@ async function bootstrap() {
   await loadRuntimeConfig();
   startAutoRefresh();
   await loadHoldings();
+  await loadWatchlist();
   startPolling();
 }
 
