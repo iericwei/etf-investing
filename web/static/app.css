@@ -420,3 +420,20 @@ tr.holding        { background: rgba(63,185,80,.04) !important; }
   border-color: var(--border);
   color: var(--muted);
 }
+
+/* ── 分组标题行 ──────────────────────────────────────────────────── */
+tr.group-header td {
+  background: var(--surface);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .5px;
+  border-bottom: 1px solid var(--border);
+  border-top: 2px solid var(--border);
+}
+tr.group-header:hover { background: var(--surface); }
+tr.group-header td::before {
+  content: '▸ ';
+  color: var(--blue);
+}

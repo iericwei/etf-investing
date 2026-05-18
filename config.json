@@ -29,7 +29,7 @@
     "_comment_default_max_count": "按成交额降序最多扫描的 ETF 数量，避免全市场历史数据拉取过慢。",
     "default_top_n": 10,
     "_comment_default_top_n": "命令行 etf_daily.py 默认展示的优选 ETF 数量。",
-    "web_top_n": 50,
+    "web_top_n": 30,
     "_comment_web_top_n": "Web Dashboard 后端缓存的优选 ETF 数量，用于前端分类筛选和展示。",
     "history_days": 65,
     "_comment_history_days": "每只 ETF 拉取的历史日 K 数量，用于计算 MA/RSI/MACD/涨跌幅等指标。",

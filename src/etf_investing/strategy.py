@@ -358,6 +358,7 @@ def select_top(
         item["trade_signal"] = trade_signal
         item["buy_signal"] = trade_signal["action"] == "buy"
         item["sell_signal"] = trade_signal["action"] == "sell"
+        item["signal_sort"] = {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2)
         if include_backtest:
             bt = backtest_model(enriched[code], window=22)
             item["backtest"] = bt

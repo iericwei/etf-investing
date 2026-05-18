@@ -42,6 +42,9 @@ const SORT_LABELS = {
   ret10: '10日',
   backtest_return_pct: '回测1月',
   score: '评分',
+  rsi: 'RSI',
+  vol_ratio: '量比',
+  signal_sort: '模型信号',
 };
 
 function pct(v) {
@@ -383,19 +386,38 @@ function stopHoldingsTimer() {
 }
 
 function scoreCell(r) {
-  const w = Math.min(r.score, 100);
+  const score = Number(r.score);
+  if (!Number.isFinite(score)) return '<span class="muted">—</span>';
+  const momentum = Number(r.momentum_score);
+  const volume = Number(r.volume_score);
+  const technical = Number(r.technical_score);
+  const trend = Number(r.trend_score || 0);
+  const w = Math.min(score, 100);
   return `
     <div class="score-cell score-tip">
       <div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div>
-      <div class="score-val">${r.score.toFixed(1)}</div>
+      <div class="score-val">${score.toFixed(1)}</div>
       <div class="tip-content factor-tip">
-        <div class="tip-row"><span class="tip-label factor-help">动量 (35%)<small>3日/5日涨跌幅，衡量短期价格强弱</small></span><span class="tip-val">${r.momentum_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label factor-help">量能 (25%)<small>量比 × 短期涨幅，衡量放量上涨协同</small></span><span class="tip-val">${r.volume_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label factor-help">技术 (25%)<small>RSI 健康度、MACD、均线结构综合评分</small></span><span class="tip-val">${r.technical_score.toFixed(1)}</span></div>
-        <div class="tip-row"><span class="tip-label factor-help">趋势 (15%)<small>10日涨跌幅，衡量更长一点的趋势延续</small></span><span class="tip-val">${(r.trend_score || 0).toFixed(1)}</span></div>
-        <div class="tip-row total"><span class="tip-label">综合得分</span><span class="tip-val">${r.score.toFixed(1)}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">动量 (35%)<small>3日/5日涨跌幅，衡量短期价格强弱</small></span><span class="tip-val">${Number.isFinite(momentum) ? momentum.toFixed(1) : '—'}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">量能 (25%)<small>量比 × 短期涨幅，衡量放量上涨协同</small></span><span class="tip-val">${Number.isFinite(volume) ? volume.toFixed(1) : '—'}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">技术 (25%)<small>RSI 健康度、MACD、均线结构综合评分</small></span><span class="tip-val">${Number.isFinite(technical) ? technical.toFixed(1) : '—'}</span></div>
+        <div class="tip-row"><span class="tip-label factor-help">趋势 (15%)<small>10日涨跌幅，衡量更长一点的趋势延续</small></span><span class="tip-val">${Number.isFinite(trend) ? trend.toFixed(1) : '—'}</span></div>
+        <div class="tip-row total"><span class="tip-label">综合得分</span><span class="tip-val">${score.toFixed(1)}</span></div>
       </div>
     </div>`;
+}
+
+function dataRows(list) {
+  return (list || []).filter(r => r && !r._is_group_header);
+}
+
+function targetGroupName(row) {
+  const fallback = row && row.category ? String(row.category) : '其他';
+  let text = row && row.name ? String(row.name).trim() : '';
+  if (!text) return fallback;
+  text = text.replace(/[\s（）()\-_/]+/g, '');
+  const target = text.replace(/(ETF|ＥＴＦ|LOF|QDII|联接|基金|指数|增强|优选).*$/i, '').trim();
+  return target || text || fallback;
 }
 
 function numericValue(row, field) {
@@ -405,7 +427,7 @@ function numericValue(row, field) {
 }
 
 function sortRows(list) {
-  const rows = [...list];
+  const rows = dataRows(list);
   if (!_sortField) return rows;
   const dir = _sortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -422,7 +444,7 @@ function sortRows(list) {
 
 function currentList() {
   if (_activeCat === '全部') return _allResults;
-  return _allResults.filter(r => r.category === _activeCat);
+  return dataRows(_allResults).filter(r => r.category === _activeCat);
 }
 
 function sortBy(field) {
@@ -446,9 +468,10 @@ function updateSortHeaders() {
 }
 
 function buildTabs(results) {
+  const rows = dataRows(results);
   const order = ['全部', '持仓'];
-  const counts = {'全部': results.length, '持仓': _holdings.size};
-  for (const r of results) {
+  const counts = {'全部': rows.length, '持仓': _holdings.size};
+  for (const r of rows) {
     if (!counts[r.category]) { order.push(r.category); counts[r.category] = 0; }
     counts[r.category]++;
   }
@@ -483,9 +506,16 @@ function selectTab(cat) {
 }
 
 function renderRows(list) {
-  const rows = sortRows(list);
-  document.getElementById('tbody').innerHTML = rows.map(r => `
-    <tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
+  const sorted = sortRows(list);
+  // 当用户未手动排序时，按分组插入标题行
+  const rows = _sortField
+    ? sorted
+    : insertGroupHeaders(list);
+  document.getElementById('tbody').innerHTML = rows.map(r => {
+    if (r._is_group_header) {
+      return `<tr class="group-header" data-cat="${esc(r.category)}"><td colspan="16">${esc(r.category)}</td></tr>`;
+    }
+    return `<tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
       <td class="r">${rankCell(r)}</td>
       <td><span class="code">${r.code}</span></td>
       <td>${esc(r.name)}</td>
@@ -502,8 +532,32 @@ function renderRows(list) {
       <td class="r">${backtestCell(r)}</td>
       <td class="r">${scoreCell(r)}</td>
       <td style="text-align:center">${actionBtns(r)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   updateSortHeaders();
+}
+
+function insertGroupHeaders(list) {
+  const rows = dataRows(list);
+  const groups = new Map();
+  for (const r of rows) {
+    const target = targetGroupName(r);
+    if (!groups.has(target)) groups.set(target, []);
+    groups.get(target).push(r);
+  }
+
+  const groupOrder = Array.from(groups.keys()).sort((a, b) => {
+    const bestA = Math.max(...groups.get(a).map(r => Number(r.score) || 0));
+    const bestB = Math.max(...groups.get(b).map(r => Number(r.score) || 0));
+    return bestB - bestA;
+  });
+
+  const out = [];
+  for (const target of groupOrder) {
+    out.push({_is_group_header: true, category: target});
+    out.push(...groups.get(target).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)));
+  }
+  return out;
 }
 
 function updateBacktestStatus(backtest) {
@@ -529,11 +583,16 @@ function updateBacktestStatus(backtest) {
 
 function render(data) {
   _allResults = data.results || [];
+  const rows = dataRows(_allResults);
+  const topScore = rows.reduce((best, r) => {
+    const score = Number(r.score);
+    return Number.isFinite(score) ? Math.max(best, score) : best;
+  }, -Infinity);
   _watchlist = new Set(data.watchlist || Array.from(_watchlist));
   document.getElementById('sTotal').textContent    = data.universe_total ? data.universe_total + '只' : '—';
   document.getElementById('sScanned').textContent  = data.scanned ? data.scanned + '只' : '—';
-  document.getElementById('sSelected').textContent = _allResults.length;
-  document.getElementById('sTop').textContent      = _allResults.length ? _allResults[0].score.toFixed(1) : '—';
+  document.getElementById('sSelected').textContent = rows.length;
+  document.getElementById('sTop').textContent      = Number.isFinite(topScore) ? topScore.toFixed(1) : '—';
   const sStatus = document.getElementById('sStatus');
   sStatus.textContent = '实时'; sStatus.style.color = '#3fb950';
   if (data.timestamp) document.getElementById('updateTime').textContent = '更新于 ' + data.timestamp;

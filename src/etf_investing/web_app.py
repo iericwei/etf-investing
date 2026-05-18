@@ -170,6 +170,7 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
             "trade_signal":    trade_signal,
             "buy_signal":      trade_signal["action"] == "buy",
             "sell_signal":     trade_signal["action"] == "sell",
+            "signal_sort":     {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2),
             "backtest":        None,
             "backtest_return_pct": None,
             "is_custom":       True,
@@ -196,6 +197,46 @@ def _merge_custom_rows(results: list[dict], etf_map: dict, realtime: dict | None
     rt = realtime or fetch_realtime(missing)
     custom_rows = _build_rows_for_codes(missing, etf_map, rt, meta, len(results) + 1)
     return results + custom_rows
+
+
+_ETF_ISSUER_SUFFIX_RE = re.compile(
+    r"(ETF|ＥＴＦ|LOF|QDII|联接|基金|指数|增强|优选).*$",
+    re.IGNORECASE,
+)
+
+
+def _target_group_name(name: str, fallback: str = "其他") -> str:
+    """从 ETF 名称提取标的名称，用于把同一标的的不同发行方集中展示。"""
+    text = str(name or "").strip()
+    if not text:
+        return fallback
+    text = re.sub(r"[\s（）()\-_/]+", "", text)
+    target = _ETF_ISSUER_SUFFIX_RE.sub("", text).strip()
+    return target or text or fallback
+
+
+def _group_by_target(results: list[dict]) -> list[dict]:
+    """按标的名称分组：如“半导体设备ETF国泰/招商”归为“半导体设备”。"""
+    groups: dict[str, list[dict]] = {}
+    group_order: list[str] = []
+    for r in results:
+        target = _target_group_name(r.get("name", ""), r.get("category", "其他"))
+        if target not in groups:
+            groups[target] = []
+            group_order.append(target)
+        groups[target].append(r)
+    # 按组内最高评分对分组排序
+    group_order.sort(key=lambda c: max(r.get("score", 0) for r in groups[c]), reverse=True)
+    out: list[dict] = []
+    new_rank = 1
+    for target in group_order:
+        items = sorted(groups[target], key=lambda r: r.get("score", 0), reverse=True)
+        out.append({"_is_group_header": True, "category": target})
+        for item in items:
+            item["rank"] = new_rank
+            new_rank += 1
+            out.append(item)
+    return out
 
 
 def _run_selection():
@@ -232,6 +273,7 @@ def _run_selection():
             include_backtest=False,
         )
         results = _merge_custom_rows(results, etf_map)
+        results = _group_by_target(results)
         for item in results:
             prev = previous_backtests.get(item.get("code"))
             if prev:
@@ -485,7 +527,11 @@ def api_holdings_realtime():
     etf_map:  dict = {}
     with _lock:
         for r in (_cache.get("results") or []):
-            rank_map[r["code"]] = r["rank"]
+            if not isinstance(r, dict) or r.get("_is_group_header"):
+                continue
+            code = r.get("code")
+            if code:
+                rank_map[code] = r.get("rank")
         etf_map = dict(_cache.get("etf_map", {}))
 
     # 对缓存中缺失的持仓代码实时补取历史 K 线（并发）
