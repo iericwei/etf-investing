@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -46,6 +48,8 @@ class WebTargetGroupingTests(unittest.TestCase):
             )
         try:
             with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
+                 patch.object(web_app, "_load_watchlist", return_value=[]), \
+                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={}), \
                  patch.object(web_app, "fetch_realtime", return_value={"111111": {"name": "半导体ETF国泰", "price": 1.23, "change_pct": 0.5, "amount": 1000}}), \
                  patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "科技"}}):
                 res = web_app.app.test_client().get("/api/holdings/realtime")
@@ -54,6 +58,69 @@ class WebTargetGroupingTests(unittest.TestCase):
             payload = res.get_json()
             self.assertEqual(payload["data"][0]["code"], "111111")
             self.assertEqual(payload["data"][0]["rank"], 1)
+        finally:
+            with web_app._lock:
+                web_app._cache.clear()
+                web_app._cache.update(old_cache)
+
+    def test_holdings_realtime_uses_same_trade_signal_as_cached_list_row(self):
+        cached_signal = {"action": "buy", "label": "买入/持有"}
+        with web_app._lock:
+            old_cache = dict(web_app._cache)
+            web_app._cache.update(
+                results=[{"code": "111111", "rank": 1, "trade_signal": cached_signal}],
+                etf_map={},
+            )
+        try:
+            with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
+                 patch.object(web_app, "_load_watchlist", return_value=[]), \
+                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={"111111": {"code": "111111", "rank": 1, "trade_signal": cached_signal}}), \
+                 patch.object(web_app, "fetch_realtime", return_value={"111111": {"name": "测试ETF", "price": 1.23, "change_pct": 0.5, "amount": 1000}}), \
+                 patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "科技"}}):
+                res = web_app.app.test_client().get("/api/holdings/realtime")
+
+            self.assertEqual(res.status_code, 200)
+            payload = res.get_json()
+            self.assertEqual(payload["data"][0]["trade_signal"], cached_signal)
+        finally:
+            with web_app._lock:
+                web_app._cache.clear()
+                web_app._cache.update(old_cache)
+
+    def test_holdings_realtime_refreshes_holdings_and_watchlist_rows_in_cache(self):
+        old_df = pd.DataFrame({
+            "date": pd.date_range("2026-01-01", periods=45, freq="B"),
+            "open": [1.0] * 45,
+            "close": [1.0] * 45,
+            "high": [1.1] * 45,
+            "low": [0.9] * 45,
+            "volume": [1000] * 45,
+        })
+        with web_app._lock:
+            old_cache = dict(web_app._cache)
+            web_app._cache.update(
+                status="ready",
+                results=[
+                    {"code": "111111", "rank": 1, "name": "持仓ETF", "category": "持仓", "trade_signal": {"action": "sell"}},
+                    {"code": "222222", "rank": 2, "name": "自选ETF", "category": "自选", "is_custom": True, "trade_signal": {"action": "sell"}},
+                ],
+                etf_map={"111111": old_df, "222222": old_df},
+            )
+        try:
+            with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
+                 patch.object(web_app, "_load_watchlist", return_value=["222222"]), \
+                 patch.object(web_app, "fetch_realtime", return_value={
+                     "111111": {"name": "持仓ETF", "price": 2.0, "change_pct": 1.0, "amount": 1000},
+                     "222222": {"name": "自选ETF", "price": 2.0, "change_pct": 1.0, "amount": 1000},
+                 }), \
+                 patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "持仓"}, "222222": {"category": "自选"}}):
+                res = web_app.app.test_client().get("/api/holdings/realtime")
+
+            self.assertEqual(res.status_code, 200)
+            with web_app._lock:
+                rows = {r.get("code"): r for r in web_app._cache["results"] if not r.get("_is_group_header")}
+            self.assertEqual(rows["111111"]["price"], 2.0)
+            self.assertEqual(rows["222222"]["price"], 2.0)
         finally:
             with web_app._lock:
                 web_app._cache.clear()

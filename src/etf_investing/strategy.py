@@ -298,6 +298,7 @@ def select_top(
     model_name: str | None = None,
     model_config: dict[str, Any] | None = None,
     include_backtest: bool = True,
+    intraday_map: Dict[str, pd.DataFrame] | None = None,
 ) -> List[dict]:
     """
     综合历史数据 + 实时行情评分，返回 top_n 个结果（已排序）。
@@ -370,7 +371,11 @@ def select_top(
         item["sell_signal"] = trade_signal["action"] == "sell"
         item["signal_sort"] = {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2)
         if include_backtest:
-            bt = backtest_model(enriched[code], window=22)
+            bt = backtest_model(
+                enriched[code],
+                window=22,
+                intraday=(intraday_map or {}).get(code),
+            )
             item["backtest"] = bt
             item["backtest_return_pct"] = bt["return_pct"]
         else:
@@ -494,6 +499,39 @@ def _trade_reason(sig: dict, action: str) -> str:
     return "；".join(names[:3]) or ("模型买入" if action == "buy" else "模型卖出")
 
 
+def _prepare_intraday_lookup(intraday: pd.DataFrame | None, trade_time: str) -> dict[pd.Timestamp, float]:
+    """把 15 分钟分时数据整理成 {交易日: 收盘前15分钟价格}。"""
+    if intraday is None or intraday.empty or "close" not in intraday.columns:
+        return {}
+    df = intraday.copy()
+    if "datetime" in df.columns:
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    elif "date" in df.columns and "time" in df.columns:
+        df["datetime"] = pd.to_datetime(
+            df["date"].astype(str) + " " + df["time"].astype(str),
+            errors="coerce",
+        )
+    else:
+        return {}
+    df = df.dropna(subset=["datetime"])
+    if df.empty:
+        return {}
+    df["date_key"] = df["datetime"].dt.normalize()
+    df["time_key"] = df["datetime"].dt.strftime("%H:%M")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    lookup: dict[pd.Timestamp, float] = {}
+    for date_key, day in df.dropna(subset=["close"]).groupby("date_key"):
+        exact = day[day["time_key"] == trade_time]
+        if exact.empty:
+            exact = day[day["time_key"] <= trade_time]
+        if exact.empty:
+            continue
+        price = _safe_float(exact.sort_values("datetime").iloc[-1].get("close"))
+        if price > 0:
+            lookup[pd.Timestamp(date_key)] = price
+    return lookup
+
+
 def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     if scheme_config is not None:
         active = scheme_name or "custom"
@@ -508,18 +546,35 @@ def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[st
     return active, cfg
 
 
+def _price_source_label(source: str) -> str:
+    """把回测成交价格来源转成买卖点明细里展示的中文说明。"""
+    if source == "akshare_15m":
+        return "akshare 15分钟分时行情价"
+    if source == "close":
+        return "日K收盘价"
+    return source
+
+
 def backtest_model(
     df: pd.DataFrame,
     window: int | None = None,
     scheme_name: str | None = None,
     scheme_config: dict[str, Any] | None = None,
+    intraday: pd.DataFrame | None = None,
 ) -> dict:
     """用买卖信号按指定回测方案做单标的回测。"""
     active_scheme, scheme = _backtest_scheme_meta(scheme_name, scheme_config)
     window_days = int(window if window is not None else scheme.get("window_days", 22))
     trade_time = str(scheme.get("trade_time", "14:45"))
     timing_label = str(scheme.get("trade_timing_label", "收盘前15分钟"))
-    price_source = str(scheme.get("execution_price", "close"))
+    intraday_lookup = _prepare_intraday_lookup(intraday, trade_time)
+    has_intraday_price = bool(intraday_lookup)
+    price_source = "akshare_15m" if has_intraday_price else str(scheme.get("execution_price", "close"))
+    price_note = (
+        "成交价使用 akshare fund_etf_hist_min_em 的 15 分钟分时行情，取每个交易日 14:45 K 线收盘价"
+        if has_intraday_price
+        else "当前只有日 K 数据，成交价使用当日收盘价近似收盘前 15 分钟价格" if price_source == "close" else ""
+    )
 
     base_result = {
         "scheme": active_scheme,
@@ -528,7 +583,7 @@ def backtest_model(
         "trade_time": trade_time,
         "trade_timing_label": timing_label,
         "execution_price": price_source,
-        "price_note": "当前只有日 K 数据，成交价使用当日收盘价近似收盘前 15 分钟价格" if price_source == "close" else "",
+        "price_note": price_note,
         "window_days": window_days,
     }
 
@@ -557,7 +612,15 @@ def backtest_model(
         hist = data.iloc[: pos + 1]
         row = hist.iloc[-1]
         date_text = _format_backtest_date(row, pos)
-        price = _safe_float(row.get("close"))
+        date_key = None
+        try:
+            date_key = pd.to_datetime(row.get("date")).normalize()
+        except Exception:
+            date_key = None
+        daily_price = _safe_float(row.get("close"))
+        price = intraday_lookup.get(date_key, daily_price) if date_key is not None else daily_price
+        trade_price_source = "akshare_15m" if date_key is not None and date_key in intraday_lookup else str(scheme.get("execution_price", "close"))
+        trade_price_source_label = _price_source_label(trade_price_source)
         if price <= 0:
             continue
         sig = compute_trade_signal(hist)
@@ -573,7 +636,8 @@ def backtest_model(
                 "time": trade_time,
                 "trade_timing_label": timing_label,
                 "price": round(price, 4),
-                "price_source": price_source,
+                "price_source": trade_price_source,
+                "price_source_label": trade_price_source_label,
                 "reason": _trade_reason(sig, "buy"),
                 "return_pct": round((cash + shares * price - 1.0) * 100, 2),
             })
@@ -589,7 +653,8 @@ def backtest_model(
                 "time": trade_time,
                 "trade_timing_label": timing_label,
                 "price": round(price, 4),
-                "price_source": price_source,
+                "price_source": trade_price_source,
+                "price_source_label": trade_price_source_label,
                 "reason": _trade_reason(sig, "sell"),
                 "return_pct": round((cash - 1.0) * 100, 2),
             })
@@ -601,7 +666,13 @@ def backtest_model(
             "return_pct": round((value - 1.0) * 100, 2),
         })
 
-    last_price = _safe_float(data.iloc[-1].get("close"))
+    last_row = data.iloc[-1]
+    try:
+        last_date_key = pd.to_datetime(last_row.get("date")).normalize()
+    except Exception:
+        last_date_key = None
+    last_daily_price = _safe_float(last_row.get("close"))
+    last_price = intraday_lookup.get(last_date_key, last_daily_price) if last_date_key is not None else last_daily_price
     final_value = cash + shares * last_price
     return_pct = (final_value - 1.0) * 100
     return {

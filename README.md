@@ -4,6 +4,9 @@
 
 > 风险提示：本项目输出仅用于量化研究和投资参考，不构成任何投资建议。ETF 交易存在市场风险，请自行决策并控制仓位。
 
+## 屏幕截图
+![项目演示效果](./screenshot.png)
+
 ## 主要功能
 
 - 全市场 ETF 扫描：从东方财富拉取 ETF 列表，并按成交额过滤低流动性品种。
@@ -24,6 +27,7 @@
 - pandas / numpy：K 线数据处理、指标与因子计算
 - requests：HTTP 数据源请求
 - mootdx：通达信行情协议数据源
+- akshare：回测使用东方财富 ETF 15 分钟分时行情（fund_etf_hist_min_em）
 
 依赖见 `requirements.txt`：
 
@@ -34,6 +38,7 @@ mootdx
 requests
 pandas
 numpy
+akshare
 ```
 
 ## 运行环境与网络要求
@@ -144,7 +149,7 @@ etf-investing/
 建议使用虚拟环境：
 
 ```bash
-cd /Users/ericwei/AppProject/codes/etf-investing
+cd etf-investing
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -153,7 +158,7 @@ pip install -r requirements.txt
 如果已经存在 `.venv`，可直接激活：
 
 ```bash
-cd /Users/ericwei/AppProject/codes/etf-investing
+cd etf-investing
 source .venv/bin/activate
 ```
 

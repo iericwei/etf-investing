@@ -117,11 +117,15 @@ function backtestCell(r) {
     const label = tp.action === 'buy' ? 'B' : 'S';
     return `<g class="${cls}"><circle cx="${xAt(idx).toFixed(1)}" cy="${yAt(p.return_pct).toFixed(1)}" r="4"></circle><text x="${xAt(idx).toFixed(1)}" y="${(yAt(p.return_pct)+3).toFixed(1)}">${label}</text></g>`;
   }).join('');
-  const tradeRows = points.length ? points.map(tp => `
+  const tradeRows = points.length ? points.map(tp => {
+    const sourceLabel = tp.price_source_label || (tp.price_source === 'akshare_15m' ? 'akshare 15分钟分时行情价' : (tp.price_source === 'close' ? '日K收盘价' : tp.price_source));
+    const sourceNote = sourceLabel ? `<span class="muted">（价格来源：${esc(sourceLabel)}）</span>` : '';
+    return `
     <div class="bt-trade ${tp.action === 'buy' ? 'bt-buy-text' : 'bt-sell-text'}">
-      <div><b>${esc(tp.label || tp.action)}</b> ${esc(tp.date)} ${tp.time ? esc(tp.time) : ''} @ ${Number(tp.price).toFixed(3)}</div>
+      <div><b>${esc(tp.label || tp.action)}</b> ${esc(tp.date)} ${tp.time ? esc(tp.time) : ''} @ ${Number(tp.price).toFixed(3)} ${sourceNote}</div>
       <div class="bt-reason">${esc(tp.reason)}，当时收益 ${pct(Number(tp.return_pct) || 0)}</div>
-    </div>`).join('') : '<div class="muted">回测期内未触发买卖点</div>';
+    </div>`;
+  }).join('') : '<div class="muted">回测期内未触发买卖点</div>';
   const schemeName = bt.scheme_display_name || bt.trade_timing_label || '回测';
   const priceNote = bt.price_note ? `<div class="muted">${esc(bt.price_note)}</div>` : '';
   return `
@@ -287,10 +291,10 @@ async function removeWatchlist(code) {
   renderRows(currentList());
 }
 
-async function reloadSelectOnce() {
+async function reloadSelectOnce(preserveActiveCat = false) {
   try {
     const data = await (await fetch('/api/select')).json();
-    if (data.status === 'ready') render(data);
+    if (data.status === 'ready') render(data, preserveActiveCat);
   } catch(e) {}
 }
 
@@ -322,6 +326,7 @@ async function refreshHoldings() {
   try {
     hideSellTip();
     const d = await (await fetch('/api/holdings/realtime')).json();
+    await reloadSelectOnce(true);
     if (d.timestamp) document.getElementById('hpTs').textContent = '更新于 ' + d.timestamp;
     const items = d.data || [];
     const body = document.getElementById('hpBody');
@@ -336,6 +341,7 @@ async function refreshHoldings() {
             <th>代码</th><th>名称</th><th>类别</th>
             <th class="r">实时价</th><th class="r">涨跌幅</th>
             <th class="r">成交额</th><th style="text-align:center">榜单</th>
+            <th style="text-align:center">模型信号</th>
             <th style="text-align:center">卖出信号</th>
             <th style="text-align:center">操作</th>
           </tr></thead>
@@ -351,6 +357,7 @@ async function refreshHoldings() {
                 <td style="text-align:center">
                   ${r.rank ? `<span class="rank-badge">#${r.rank}</span>` : '<span style="color:var(--muted);font-size:11px">未入榜</span>'}
                 </td>
+                <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
                 <td style="text-align:center">${sellBadge(r.sell_signals)}</td>
                 <td style="text-align:center">
                   <button class="btn-hold active" onclick="toggleHolding('${r.code}')">移除</button>
@@ -589,7 +596,8 @@ function updateBacktestStatus(backtest) {
   }
 }
 
-function render(data) {
+function render(data, preserveActiveCat = false) {
+  const previousCat = _activeCat;
   _allResults = data.results || [];
   const rows = dataRows(_allResults);
   const topScore = rows.reduce((best, r) => {
@@ -607,9 +615,20 @@ function render(data) {
   if (data.date)      document.getElementById('dateChip').textContent   = data.date;
   updateBacktestStatus(data.backtest);
 
-  _activeCat = '全部';
+  _activeCat = preserveActiveCat && previousCat ? previousCat : '全部';
   buildTabs(_allResults);
-  renderRows(_allResults);
+  if (_activeCat === '持仓') {
+    const table = document.querySelector('.table-wrap');
+    const hpPanel = document.getElementById('holdings-panel');
+    if (table) table.style.display = 'none';
+    if (hpPanel) hpPanel.style.display = 'block';
+  } else {
+    const table = document.querySelector('.table-wrap');
+    const hpPanel = document.getElementById('holdings-panel');
+    if (table) table.style.display = '';
+    if (hpPanel) hpPanel.style.display = 'none';
+    renderRows(currentList());
+  }
 
   document.getElementById('loading').style.display       = 'none';
   document.getElementById('error-box').style.display     = 'none';

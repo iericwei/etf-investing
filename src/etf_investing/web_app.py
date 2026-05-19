@@ -17,7 +17,7 @@ from flask_cors import CORS
 
 from .config import BASE_DIR, CONFIG, app_base_url, now_str, today_str, web_runtime_config
 from .universe import fetch_universe
-from .data import fetch_all_history, fetch_history, fetch_realtime
+from .data import fetch_all_history, fetch_etf_15m_history, fetch_history, fetch_realtime
 from .strategy import (
     backtest_model,
     compute_indicators,
@@ -353,6 +353,80 @@ def _append_custom_to_ready_cache(code: str):
             _cache["timestamp"] = now_str("timestamp_format")
 
 
+def _refresh_cached_rows_for_codes(codes: list[str]) -> dict[str, dict]:
+    """刷新指定代码的榜单行，并写回缓存；用于持仓/自选轻量刷新。"""
+    wanted = []
+    seen = set()
+    for code in codes:
+        code = _normalize_code(code)
+        if _valid_code(code) and code not in seen:
+            wanted.append(code)
+            seen.add(code)
+    if not wanted:
+        return {}
+
+    with _lock:
+        current_results = [dict(r) for r in (_cache.get("results") or [])]
+        etf_map = dict(_cache.get("etf_map", {}))
+
+    for code in wanted:
+        if code not in etf_map:
+            df = fetch_history(code, int(CONFIG["selection"]["history_days"]))
+            if not df.empty and len(df) >= int(CONFIG["selection"]["holding_min_history_rows"]):
+                etf_map[code] = df
+
+    available = [code for code in wanted if code in etf_map]
+    if not available:
+        return {}
+
+    realtime = fetch_realtime(available)
+    meta = _universe_meta()
+    new_rows = _build_rows_for_codes(available, etf_map, realtime, meta, 1)
+    new_by_code = {r.get("code"): r for r in new_rows if r.get("code")}
+    if not new_by_code:
+        return {}
+
+    data_rows = [dict(r) for r in current_results if isinstance(r, dict) and not r.get("_is_group_header")]
+    old_by_code = {r.get("code"): r for r in data_rows if r.get("code")}
+    merged_by_code = dict(old_by_code)
+
+    for code, fresh in new_by_code.items():
+        old = old_by_code.get(code, {})
+        merged = dict(old)
+        preserved_rank = old.get("rank")
+        preserved_backtest = (old.get("backtest"), old.get("backtest_return_pct"))
+        merged.update(fresh)
+        if preserved_rank is not None:
+            merged["rank"] = preserved_rank
+        if old.get("is_custom"):
+            merged["is_custom"] = True
+        elif old:
+            merged.pop("is_custom", None)
+        if preserved_backtest[0] is not None:
+            merged["backtest"], merged["backtest_return_pct"] = preserved_backtest
+        merged_by_code[code] = merged
+
+    ordered: list[dict] = []
+    emitted = set()
+    for row in data_rows:
+        code = row.get("code")
+        if code in merged_by_code and code not in emitted:
+            ordered.append(merged_by_code[code])
+            emitted.add(code)
+    for code in wanted:
+        if code in merged_by_code and code not in emitted:
+            ordered.append(merged_by_code[code])
+            emitted.add(code)
+
+    regrouped = _group_by_target(ordered) if ordered else []
+    refreshed = {str(code): row for code, row in merged_by_code.items() if code and code in new_by_code}
+    with _lock:
+        _cache["results"] = regrouped
+        _cache["etf_map"] = etf_map
+        _cache["timestamp"] = now_str("timestamp_format")
+    return refreshed
+
+
 def _run_backtest_async(force: bool = False):
     with _backtest_lock:
         with _lock:
@@ -368,6 +442,8 @@ def _run_backtest_async(force: bool = False):
             etf_map = dict(_cache.get("etf_map", {}))
 
         try:
+            _, backtest_cfg = get_backtest_scheme_config()
+            window_days = int(backtest_cfg.get("window_days", 22))
             for r in results:
                 code = r.get("code")
                 if not code:
@@ -377,7 +453,12 @@ def _run_backtest_async(force: bool = False):
                     if not df.empty:
                         etf_map[code] = df
                 if code in etf_map:
-                    bt = backtest_model(etf_map[code], window=22)
+                    intraday = fetch_etf_15m_history(code, days=max(window_days * 2, window_days + 10))
+                    bt = backtest_model(
+                        etf_map[code],
+                        window=window_days,
+                        intraday=None if intraday.empty else intraday,
+                    )
                     r["backtest"] = bt
                     r["backtest_return_pct"] = bt["return_pct"]
 
@@ -539,11 +620,14 @@ def api_holdings_realtime():
     if not holdings:
         return jsonify({"data": [], "timestamp": None})
 
+    watchlist = _load_watchlist()
+    refreshed_rows = _refresh_cached_rows_for_codes(holdings + watchlist)
     rt = fetch_realtime(holdings)
     meta = _universe_meta()
 
-    # 从选股缓存取评分排名和历史数据
+    # 从选股缓存取评分排名、模型信号和历史数据
     rank_map: dict = {}
+    row_map: dict = dict(refreshed_rows)
     etf_map:  dict = {}
     with _lock:
         for r in (_cache.get("results") or []):
@@ -552,6 +636,7 @@ def api_holdings_realtime():
             code = r.get("code")
             if code:
                 rank_map[code] = r.get("rank")
+                row_map.setdefault(code, r)
         etf_map = dict(_cache.get("etf_map", {}))
 
     # 对缓存中缺失的持仓代码实时补取历史 K 线（并发）
@@ -576,6 +661,7 @@ def api_holdings_realtime():
     data = []
     for code in holdings:
         q = rt.get(code, {})
+        cached_row = row_map.get(code, {})
         m = meta.get(code, {})
         price = q.get("price", 0)
 
@@ -587,12 +673,14 @@ def api_holdings_realtime():
 
         data.append({
             "code":         code,
-            "name":         q.get("name") or m.get("name", code),
-            "category":     m.get("category", ""),
+            "name":         q.get("name") or cached_row.get("name") or m.get("name", code),
+            "category":     cached_row.get("category") or m.get("category", ""),
             "price":        price,
-            "change_pct":   q.get("change_pct", 0),
+            "change_pct":   q.get("change_pct", cached_row.get("change_pct", 0)),
             "amount":       q.get("amount", 0),
             "rank":         rank_map.get(code),
+            "trade_signal": cached_row.get("trade_signal"),
+            "signal_sort":  cached_row.get("signal_sort"),
             "sell_signals": sell,
         })
 

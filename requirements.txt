@@ -4,3 +4,4 @@ mootdx
 requests
 pandas
 numpy
+akshare

@@ -8,6 +8,8 @@ import re
 import json
 import logging
 import threading
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -138,6 +140,82 @@ def fetch_all_history(pool: list, days: int | None = None, workers: int | None =
             except Exception as e:
                 logger.debug(f"[fetch_all] {code}: {e}")
     return result
+
+
+# ── 15 分钟分时 K（回测成交价）──────────────────────────────────────────
+
+@contextmanager
+def _requests_without_environment_proxy():
+    """akshare 内部直接调用 requests.get；临时关闭系统/环境代理避免本机代理不可用导致接口失败。"""
+    original_request = requests.sessions.Session.request
+
+    def request_no_env_proxy(self, method, url, **kwargs):
+        old_trust_env = self.trust_env
+        self.trust_env = False
+        try:
+            return original_request(self, method, url, **kwargs)
+        finally:
+            self.trust_env = old_trust_env
+
+    requests.sessions.Session.request = request_no_env_proxy
+    try:
+        yield
+    finally:
+        requests.sessions.Session.request = original_request
+
+
+def fetch_etf_15m_history(code: str, days: int = 35) -> pd.DataFrame:
+    """
+    通过 akshare fund_etf_hist_min_em 获取 ETF 15 分钟分时行情。
+
+    返回列: datetime, date, time, open, close, high, low, volume, amount。
+    接口不可用、akshare 未安装或返回异常时返回空 DataFrame，调用方保持原有日 K 回测逻辑。
+    """
+    try:
+        import akshare as ak
+    except Exception as e:
+        logger.debug(f"[akshare_15m] akshare 不可用: {e}")
+        return pd.DataFrame()
+
+    end_dt = datetime.now()
+    start_dt = end_dt - timedelta(days=max(int(days), 1))
+    try:
+        with _requests_without_environment_proxy():
+            raw = ak.fund_etf_hist_min_em(
+                symbol=str(code).zfill(6)[-6:],
+                start_date=start_dt.strftime("%Y-%m-%d 09:30:00"),
+                end_date=end_dt.strftime("%Y-%m-%d 15:00:00"),
+                period="15",
+                adjust="",
+            )
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+
+        df = raw.rename(columns={
+            "时间": "datetime",
+            "开盘": "open",
+            "收盘": "close",
+            "最高": "high",
+            "最低": "low",
+            "成交量": "volume",
+            "成交额": "amount",
+        }).copy()
+        required = ["datetime", "open", "close", "high", "low", "volume", "amount"]
+        if any(col not in df.columns for col in required):
+            return pd.DataFrame()
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+        df = df.dropna(subset=["datetime"])
+        if df.empty:
+            return pd.DataFrame()
+        df["date"] = df["datetime"].dt.normalize()
+        df["time"] = df["datetime"].dt.strftime("%H:%M")
+        for col in ["open", "close", "high", "low", "volume", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        keep = ["datetime", "date", "time", "open", "close", "high", "low", "volume", "amount"]
+        return df[keep].dropna(subset=["close"]).sort_values("datetime").reset_index(drop=True)
+    except Exception as e:
+        logger.debug(f"[akshare_15m] {code}: {e}")
+        return pd.DataFrame()
 
 
 # ── 实时行情 ───────────────────────────────────────────────────────────
