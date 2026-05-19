@@ -2,6 +2,7 @@ let APP_CONFIG = {
   selectionPollIntervalMs: 2500,
   holdingsRefreshSeconds: 120,
   holdingsCountdownIntervalMs: 1000,
+  holdingsMarketCheckIntervalMs: 60000,
   autoRefreshIntervalMs: 600000,
   autoRefreshStartMinute: 565,
   autoRefreshEndMinute: 905,
@@ -29,6 +30,7 @@ let _holdings = new Set();
 let _watchlist = new Set();
 let _holdingsTimer = null;
 let _holdingsCountdown = null;
+let _holdingsMarketCheck = null;
 let _holdingsSecs = 0;
 let _activeSellWrap = null;
 let _floatingSellTip = null;
@@ -322,6 +324,47 @@ function applyHoldings() {
 }
 
 /* ── 持仓面板 ────────────────────────────────────────────────────── */
+async function loadMarketStatus() {
+  try {
+    const res = await fetch('/api/market/status');
+    if (!res.ok) throw new Error('market status unavailable');
+    return await res.json();
+  } catch (_) {
+    const m = new Date();
+    const t = m.getHours() * 60 + m.getMinutes();
+    const day = m.getDay();
+    const allowed = day !== 0 && day !== 6 && t >= APP_CONFIG.autoRefreshStartMinute && t <= APP_CONFIG.autoRefreshEndMinute;
+    return {
+      auto_refresh_allowed: allowed,
+      is_trading_day: day !== 0 && day !== 6,
+      reason: allowed ? '交易时段' : (day === 0 || day === 6 ? '节假日/非交易日' : '非交易时段'),
+    };
+  }
+}
+
+function setHoldingsPauseMessage(status) {
+  const el = document.getElementById('hpCountdown');
+  if (!el) return;
+  const reason = status?.reason || '非交易时段';
+  el.textContent = `(自动刷新已暂停：${reason})`;
+}
+
+async function refreshHoldingsAuto() {
+  const status = await loadMarketStatus();
+  if (!status.auto_refresh_allowed) {
+    clearInterval(_holdingsTimer);
+    clearInterval(_holdingsCountdown);
+    _holdingsTimer = null;
+    _holdingsCountdown = null;
+    _holdingsSecs = 0;
+    setHoldingsPauseMessage(status);
+    return false;
+  }
+  _holdingsSecs = APP_CONFIG.holdingsRefreshSeconds;
+  await refreshHoldings();
+  return true;
+}
+
 async function refreshHoldings() {
   try {
     hideSellTip();
@@ -375,23 +418,31 @@ function _tickCountdown() {
   if (el) el.textContent = _holdingsSecs > 0 ? `(${_holdingsSecs}秒后刷新)` : '';
 }
 
-function startHoldingsTimer() {
-  clearInterval(_holdingsTimer);
-  clearInterval(_holdingsCountdown);
-  _holdingsSecs = APP_CONFIG.holdingsRefreshSeconds;
-  refreshHoldings();
-  _holdingsTimer = setInterval(() => {
-    _holdingsSecs = APP_CONFIG.holdingsRefreshSeconds;
-    refreshHoldings();
-  }, APP_CONFIG.holdingsRefreshSeconds * 1000);
-  _holdingsCountdown = setInterval(_tickCountdown, APP_CONFIG.holdingsCountdownIntervalMs);
+async function startHoldingsTimer() {
+  stopHoldingsTimer();
+  const active = await refreshHoldingsAuto();
+  if (active) {
+    _holdingsTimer = setInterval(refreshHoldingsAuto, APP_CONFIG.holdingsRefreshSeconds * 1000);
+    _holdingsCountdown = setInterval(_tickCountdown, APP_CONFIG.holdingsCountdownIntervalMs);
+  }
+  _holdingsMarketCheck = setInterval(async () => {
+    if (_activeCat !== '持仓') return;
+    if (_holdingsTimer) return;
+    const resumed = await refreshHoldingsAuto();
+    if (resumed) {
+      _holdingsTimer = setInterval(refreshHoldingsAuto, APP_CONFIG.holdingsRefreshSeconds * 1000);
+      _holdingsCountdown = setInterval(_tickCountdown, APP_CONFIG.holdingsCountdownIntervalMs);
+    }
+  }, APP_CONFIG.holdingsMarketCheckIntervalMs);
 }
 
 function stopHoldingsTimer() {
   clearInterval(_holdingsTimer);
   clearInterval(_holdingsCountdown);
+  clearInterval(_holdingsMarketCheck);
   _holdingsTimer = null;
   _holdingsCountdown = null;
+  _holdingsMarketCheck = null;
   const el = document.getElementById('hpCountdown');
   if (el) el.textContent = '';
 }
@@ -482,19 +533,26 @@ function updateSortHeaders() {
 function buildTabs(results) {
   const rows = dataRows(results);
   const customCount = rows.filter(r => r.is_custom).length;
-  const order = ['全部', CUSTOM_TAB, '持仓'];
+  const primary = ['全部', CUSTOM_TAB, '持仓'];
+  const extra = [];
   const counts = {'全部': rows.length, [CUSTOM_TAB]: customCount, '持仓': _holdings.size};
   for (const r of rows) {
     if (r.category === CUSTOM_TAB) continue;
-    if (!counts[r.category]) { order.push(r.category); counts[r.category] = 0; }
+    if (!counts[r.category]) { extra.push(r.category); counts[r.category] = 0; }
     counts[r.category]++;
   }
   document.getElementById('tabBar').style.display = 'block';
-  document.getElementById('tabInner').innerHTML = order.map(cat =>
+  const primaryHtml = primary.map(cat =>
     `<div class="tab${cat === _activeCat ? ' active' : ''}" onclick="selectTab('${cat}')">
        ${cat}<span class="badge">${counts[cat] ?? 0}</span>
      </div>`
   ).join('');
+  const extraHtml = extra.length ? `
+    <select id="categorySelect" class="tab-select${extra.includes(_activeCat) ? ' active' : ''}" onchange="if(this.value) selectTab(this.value)">
+      <option value="">其他分类</option>
+      ${extra.map(cat => `<option value="${esc(cat)}" ${cat === _activeCat ? 'selected' : ''}>${esc(cat)} (${counts[cat] ?? 0})</option>`).join('')}
+    </select>` : '';
+  document.getElementById('tabInner').innerHTML = primaryHtml + extraHtml;
 }
 
 function selectTab(cat) {
@@ -503,6 +561,12 @@ function selectTab(cat) {
   document.querySelectorAll('.tab').forEach(el => {
     el.classList.toggle('active', el.textContent.trim().startsWith(cat));
   });
+  const categorySelect = document.getElementById('categorySelect');
+  if (categorySelect) {
+    const hasOption = Array.from(categorySelect.options || []).some(opt => opt.value === cat);
+    categorySelect.value = hasOption ? cat : '';
+    categorySelect.classList.toggle('active', hasOption);
+  }
 
   const table   = document.querySelector('.table-wrap');
   const hpPanel = document.getElementById('holdings-panel');
@@ -717,9 +781,9 @@ async function pollBacktestStatus() {
 }
 
 function startAutoRefresh() {
-  setInterval(() => {
-    const m = new Date(); const t = m.getHours()*60 + m.getMinutes();
-    if (t >= APP_CONFIG.autoRefreshStartMinute && t <= APP_CONFIG.autoRefreshEndMinute) doRefresh();
+  setInterval(async () => {
+    const status = await loadMarketStatus();
+    if (status.auto_refresh_allowed) doRefresh();
   }, APP_CONFIG.autoRefreshIntervalMs);
 }
 

@@ -137,6 +137,28 @@ class FrontendCustomTabTests(unittest.TestCase):
 
         self.assertEqual(result, "自选")
 
+    def test_build_tabs_keeps_core_tabs_and_moves_categories_to_dropdown(self):
+        html = self._run_app_js(
+            """
+              _holdings = new Set(['333333']);
+              _activeCat = '科技';
+              buildTabs([
+                {code: '111111', category: '科技'},
+                {code: '222222', category: '金融'},
+                {code: '333333', category: '商品'},
+              ]);
+              document.getElementById('tabInner').innerHTML;
+            """
+        )
+
+        self.assertIn('全部<span class="badge">3</span>', html)
+        self.assertIn('自选<span class="badge">0</span>', html)
+        self.assertIn('持仓<span class="badge">1</span>', html)
+        self.assertIn('class="tab-select active"', html)
+        self.assertIn('科技 (1)', html)
+        self.assertIn('金融 (1)', html)
+        self.assertNotIn('onclick="selectTab(\'科技\')"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

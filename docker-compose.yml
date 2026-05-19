@@ -1,0 +1,30 @@
+services:
+  quote:
+    build:
+      context: .
+    image: etf-investing:local
+    container_name: etf-investing-quote
+    command: ["python", "etf_server.py"]
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./holdings.json:/app/holdings.json
+      - ./watchlist.json:/app/watchlist.json
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+    image: etf-investing:local
+    container_name: etf-investing-web
+    command: ["python", "etf_web.py"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./holdings.json:/app/holdings.json
+      - ./watchlist.json:/app/watchlist.json
+    depends_on:
+      - quote
+    restart: unless-stopped

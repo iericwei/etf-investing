@@ -16,9 +16,10 @@
 - 多因子选股：基于动量、量能、技术、趋势四类因子综合评分。
 - 风险硬过滤：过滤 RSI 过热、短期大跌、跌破 MA20 且持续走弱的标的。
 - 命令行报告：一键生成每日 ETF 优选榜。
-- Web Dashboard：浏览全市场优选结果、分类筛选、手动刷新。
-- 持仓监控：保存关注/持仓 ETF，实时查看行情和卖出参考信号。
+- Web Dashboard：浏览全市场优选结果、核心 Tab 快速切换，其他分类通过下拉选择，支持手动刷新。
+- 持仓监控：保存关注/持仓 ETF，实时查看行情和卖出参考信号；自动刷新仅在交易日盘中运行，收盘后和节假日自动暂停。
 - 独立行情服务：提供 `/quote` 与 `/health` API，方便其他本地工具调用。
+- 一键部署：提供本地重启脚本和 Docker 一键部署脚本。
 
 ## 技术栈
 
@@ -115,6 +116,10 @@ etf-investing/
 ├── etf_daily.py             # 兼容入口：转发到 etf_investing.daily.main
 ├── etf_web.py               # 兼容入口：转发到 etf_investing.web_app.main
 ├── etf_server.py            # 兼容入口：转发到 etf_investing.server.main
+├── restart.sh               # 本地一键启动/停止/重启脚本
+├── docker-deploy.sh         # Docker 一键部署脚本
+├── Dockerfile               # Docker 镜像构建文件
+├── docker-compose.yml       # Docker Compose 服务编排
 ├── web/                     # 前端静态资源目录
 │   ├── index.html           # Web Dashboard 页面结构
 │   └── static/
@@ -140,7 +145,7 @@ etf-investing/
 - `models`：选股模型配置；`active_selection_model` 指定当前模型，`models.selection.multi_factor_v1` 配置默认多因子模型的权重、内部参数和硬过滤阈值。
 - `server`：Web Dashboard 端口、独立行情服务端口、监听地址、行情缓存 TTL、debug 开关。
 - `time`：日期、时间戳、报告标题、行情更新时间格式。
-- `web`：前端轮询间隔、持仓刷新间隔、交易时段自动刷新窗口。
+- `web`：前端轮询间隔、持仓刷新间隔、交易时段自动刷新窗口；持仓自动刷新会通过交易日历跳过收盘后和节假日/非交易日。
 
 修改 `config.json` 后需要重启对应服务才能生效。
 
@@ -163,6 +168,36 @@ source .venv/bin/activate
 ```
 
 ## 使用方法
+
+### 0. 一键启动/部署
+
+本机直接运行两个服务：
+
+```bash
+./restart.sh
+```
+
+Docker 一键构建并后台部署：
+
+```bash
+./docker-deploy.sh
+```
+
+常用 Docker 管理命令：
+
+```bash
+./docker-deploy.sh status
+./docker-deploy.sh logs
+./docker-deploy.sh restart
+./docker-deploy.sh stop
+```
+
+Docker 部署会启动两个容器：
+
+- `etf-investing-web`：Web Dashboard，端口 `8080`。
+- `etf-investing-quote`：实时行情 API，端口 `5678`。
+
+`config.json`、`holdings.json`、`watchlist.json` 会挂载到容器内，方便保留本地配置和持仓/自选列表。
 
 ### 1. 命令行生成 ETF 选股日报
 
@@ -228,12 +263,14 @@ Web Dashboard 相关 API：
 | --- | --- | --- |
 | GET | `/api/select` | 获取选股结果；若今日缓存不存在，会后台触发扫描 |
 | GET | `/api/config` | 获取前端运行时配置，如轮询间隔、自动刷新时间窗口 |
+| GET | `/api/market/status` | 获取交易日和自动刷新状态；节假日/收盘后会返回暂停原因 |
 | GET | `/api/refresh` | 强制刷新今日选股结果 |
 | GET | `/api/holdings` | 获取本地持仓/关注 ETF 代码列表 |
 | POST | `/api/holdings/toggle` | 添加或移除某只 ETF，JSON: `{ "code": "513130" }` |
 | GET | `/api/holdings/realtime` | 获取持仓实时行情和卖出参考信号 |
 | POST | `/api/backtest/run` | 手动触发榜单回测，回测在后台线程执行 |
 | GET | `/api/backtest/status` | 获取回测状态：`idle` / `running` / `ready` / `error` |
+| GET | `/health` | Web Dashboard 健康检查 |
 
 ### 3. 启动独立实时行情服务
 

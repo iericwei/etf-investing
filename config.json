@@ -83,6 +83,8 @@
     "_comment_holdings_refresh_seconds": "持仓面板实时行情自动刷新间隔，单位秒。",
     "holdings_countdown_interval_ms": 1000,
     "_comment_holdings_countdown_interval_ms": "持仓刷新倒计时更新间隔，单位毫秒。",
+    "holdings_market_check_interval_ms": 60000,
+    "_comment_holdings_market_check_interval_ms": "持仓自动刷新暂停后重新检查交易状态的间隔，单位毫秒。60000 = 1 分钟。",
     "auto_refresh_interval_ms": 600000,
     "_comment_auto_refresh_interval_ms": "交易时段内自动触发 /api/refresh 的检查间隔，单位毫秒。600000 = 10 分钟。",
     "auto_refresh_start_minute": 565,

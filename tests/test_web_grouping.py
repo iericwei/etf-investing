@@ -1,5 +1,6 @@
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -125,6 +126,20 @@ class WebTargetGroupingTests(unittest.TestCase):
             with web_app._lock:
                 web_app._cache.clear()
                 web_app._cache.update(old_cache)
+
+    def test_market_status_pauses_after_close_and_on_holidays(self):
+        with patch.object(web_app, "_is_china_trading_day", return_value=True):
+            after_close = web_app._market_status(datetime(2026, 5, 19, 15, 30))
+            intraday = web_app._market_status(datetime(2026, 5, 19, 10, 0))
+        with patch.object(web_app, "_is_china_trading_day", return_value=False):
+            holiday = web_app._market_status(datetime(2026, 5, 20, 10, 0))
+
+        self.assertFalse(after_close["auto_refresh_allowed"])
+        self.assertTrue(after_close["after_close"])
+        self.assertEqual(after_close["reason"], "已收盘")
+        self.assertTrue(intraday["auto_refresh_allowed"])
+        self.assertFalse(holiday["auto_refresh_allowed"])
+        self.assertEqual(holiday["reason"], "节假日/非交易日")
 
 
 if __name__ == "__main__":

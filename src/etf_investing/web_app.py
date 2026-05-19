@@ -11,7 +11,7 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -55,6 +55,7 @@ _backtest_state = {
 _lock = threading.Lock()
 _backtest_lock = threading.Lock()
 _scheduler_started = False
+_trade_dates_cache: dict[str, object] = {"loaded_at": 0.0, "dates": set()}
 
 _HOLDINGS_FILE = BASE_DIR / "holdings.json"
 _WATCHLIST_FILE = BASE_DIR / "watchlist.json"
@@ -78,6 +79,70 @@ def _active_backtest_meta() -> dict:
             "trade_time": "14:45",
             "trade_timing_label": "收盘前15分钟",
         }
+
+
+def _load_china_trade_dates() -> set[date] | None:
+    """从 akshare 读取 A 股交易日历；失败时返回 None，让调用方降级到工作日判断。"""
+    now_ts = time.time()
+    cached = _trade_dates_cache.get("dates")
+    loaded_at = _trade_dates_cache.get("loaded_at", 0.0)
+    if cached and now_ts - float(loaded_at if isinstance(loaded_at, (int, float)) else 0.0) < 24 * 60 * 60:
+        return set(cached)  # type: ignore[arg-type]
+
+    try:
+        import akshare as ak
+
+        df = ak.tool_trade_date_hist_sina()
+        if df.empty:
+            return None
+        col = "trade_date" if "trade_date" in df.columns else df.columns[0]
+        dates = {d.date() if hasattr(d, "date") else datetime.strptime(str(d)[:10], "%Y-%m-%d").date() for d in df[col]}
+        _trade_dates_cache.update(loaded_at=now_ts, dates=dates)
+        return dates
+    except Exception:
+        return None
+
+
+def _is_china_trading_day(day: date | None = None) -> bool:
+    day = day or date.today()
+    if day.weekday() >= 5:
+        return False
+    trade_dates = _load_china_trade_dates()
+    if trade_dates is None:
+        # 网络/akshare 不可用时退化为工作日，避免接口异常导致前端永久暂停。
+        return True
+    return day in trade_dates
+
+
+def _market_status(now: datetime | None = None) -> dict:
+    now = now or datetime.now()
+    start_minute = int(CONFIG["web"].get("auto_refresh_start_minute", 9 * 60 + 25))
+    end_minute = int(CONFIG["web"].get("auto_refresh_end_minute", 15 * 60 + 5))
+    minute = now.hour * 60 + now.minute
+    trading_day = _is_china_trading_day(now.date())
+    after_close = trading_day and minute > end_minute
+    before_open = trading_day and minute < start_minute
+    in_window = trading_day and start_minute <= minute <= end_minute
+    if not trading_day:
+        reason = "节假日/非交易日"
+    elif after_close:
+        reason = "已收盘"
+    elif before_open:
+        reason = "未开盘"
+    else:
+        reason = "交易时段"
+    return {
+        "date": now.strftime(CONFIG["time"]["date_format"]),
+        "time": now.strftime("%H:%M:%S"),
+        "is_trading_day": trading_day,
+        "in_auto_refresh_window": in_window,
+        "auto_refresh_allowed": in_window,
+        "after_close": after_close,
+        "before_open": before_open,
+        "reason": reason,
+        "start_minute": start_minute,
+        "end_minute": end_minute,
+    }
 
 
 def _normalize_code(code: str) -> str:
@@ -695,6 +760,18 @@ def api_holdings_realtime():
 @app.route("/api/config")
 def api_config():
     return jsonify(web_runtime_config())
+
+
+@app.route("/api/market/status")
+def api_market_status():
+    return jsonify(_market_status())
+
+
+@app.route("/health")
+def health():
+    with _lock:
+        status = _cache.get("status", "idle")
+    return jsonify({"ok": True, "status": status, "market": _market_status()})
 
 
 @app.route("/")

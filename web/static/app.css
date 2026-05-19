@@ -138,6 +138,22 @@ main { padding: 20px 24px; }
   color: var(--muted);
 }
 .tab.active .badge { background: rgba(88,166,255,.15); color: var(--blue); }
+.tab-select {
+  margin: 6px 0 6px 10px;
+  padding: 5px 30px 5px 10px;
+  min-width: 138px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+.tab-select:hover, .tab-select.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
 
 /* ── Table ───────────────────────────────────────────────────────── */
 #table-section { display: none; }
