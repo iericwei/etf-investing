@@ -22,6 +22,7 @@ from .strategy import (
     backtest_model,
     compute_indicators,
     compute_trade_signal,
+    get_backtest_scheme_config,
     get_selection_model,
     select_top,
 )
@@ -59,6 +60,24 @@ _HOLDINGS_FILE = BASE_DIR / "holdings.json"
 _WATCHLIST_FILE = BASE_DIR / "watchlist.json"
 
 _CODE_RE = re.compile(r"^\d{6}$")
+
+
+def _active_backtest_meta() -> dict:
+    try:
+        name, cfg = get_backtest_scheme_config()
+        return {
+            "scheme": name,
+            "scheme_display_name": cfg.get("display_name", name),
+            "trade_time": cfg.get("trade_time", "14:45"),
+            "trade_timing_label": cfg.get("trade_timing_label", "收盘前15分钟"),
+        }
+    except Exception:
+        return {
+            "scheme": "before_close_15m",
+            "scheme_display_name": "收盘前15分钟",
+            "trade_time": "14:45",
+            "trade_timing_label": "收盘前15分钟",
+        }
 
 
 def _normalize_code(code: str) -> str:
@@ -371,6 +390,7 @@ def _run_backtest_async(force: bool = False):
                     timestamp=now_str("timestamp_format"),
                     date=today_str(),
                     error=None,
+                    **_active_backtest_meta(),
                 )
         except Exception as e:
             with _lock:
@@ -428,7 +448,7 @@ def api_select():
             "universe_total": _cache["universe_total"],
             "scanned":        _cache["scanned"],
             "watchlist":      _load_watchlist(),
-            "backtest":       dict(_backtest_state),
+            "backtest":       dict(_backtest_state, **_active_backtest_meta()),
         })
 
 
@@ -443,13 +463,13 @@ def api_refresh():
 def api_backtest_run():
     _start_backtest(force=True)
     with _lock:
-        return jsonify({"ok": True, "backtest": dict(_backtest_state)})
+        return jsonify({"ok": True, "backtest": dict(_backtest_state, **_active_backtest_meta())})
 
 
 @app.route("/api/backtest/status")
 def api_backtest_status():
     with _lock:
-        return jsonify(dict(_backtest_state))
+        return jsonify(dict(_backtest_state, **_active_backtest_meta()))
 
 
 @app.route("/api/watchlist")

@@ -34,6 +34,7 @@ let _activeSellWrap = null;
 let _floatingSellTip = null;
 let _sortField = null;
 let _sortDir = 'desc';
+const CUSTOM_TAB = '自选';
 
 const SORT_LABELS = {
   change_pct: '今日',
@@ -118,14 +119,16 @@ function backtestCell(r) {
   }).join('');
   const tradeRows = points.length ? points.map(tp => `
     <div class="bt-trade ${tp.action === 'buy' ? 'bt-buy-text' : 'bt-sell-text'}">
-      <div><b>${esc(tp.label || tp.action)}</b> ${esc(tp.date)} @ ${Number(tp.price).toFixed(3)}</div>
+      <div><b>${esc(tp.label || tp.action)}</b> ${esc(tp.date)} ${tp.time ? esc(tp.time) : ''} @ ${Number(tp.price).toFixed(3)}</div>
       <div class="bt-reason">${esc(tp.reason)}，当时收益 ${pct(Number(tp.return_pct) || 0)}</div>
     </div>`).join('') : '<div class="muted">回测期内未触发买卖点</div>';
+  const schemeName = bt.scheme_display_name || bt.trade_timing_label || '回测';
+  const priceNote = bt.price_note ? `<div class="muted">${esc(bt.price_note)}</div>` : '';
   return `
     <div class="backtest-wrap">
       <span class="${pctCls(r.backtest_return_pct)}">${pct(r.backtest_return_pct)}</span>
       <div class="tip-content backtest-tip">
-        <div class="bt-title">${esc(r.name)} 最近${bt.window_days || 22}日回测：${pct(r.backtest_return_pct)}</div>
+        <div class="bt-title">${esc(r.name)} ${esc(schemeName)} 最近${bt.window_days || 22}日回测：${pct(r.backtest_return_pct)}</div>
         <svg class="bt-chart" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="回测收益曲线">
           <line x1="${pad}" y1="${zeroY}" x2="${w-pad}" y2="${zeroY}" class="bt-zero"></line>
           <polyline points="${line}" class="bt-line"></polyline>
@@ -134,6 +137,7 @@ function backtestCell(r) {
         <div class="bt-axis"><span>${esc(curve[0].date)}</span><span>${esc(curve[curve.length - 1].date)}</span></div>
         <div class="tip-sep">买卖点明细</div>
         ${tradeRows}
+        ${priceNote}
       </div>
     </div>`;
 }
@@ -444,6 +448,7 @@ function sortRows(list) {
 
 function currentList() {
   if (_activeCat === '全部') return _allResults;
+  if (_activeCat === CUSTOM_TAB) return dataRows(_allResults).filter(r => r.is_custom);
   return dataRows(_allResults).filter(r => r.category === _activeCat);
 }
 
@@ -469,9 +474,11 @@ function updateSortHeaders() {
 
 function buildTabs(results) {
   const rows = dataRows(results);
-  const order = ['全部', '持仓'];
-  const counts = {'全部': rows.length, '持仓': _holdings.size};
+  const customCount = rows.filter(r => r.is_custom).length;
+  const order = ['全部', CUSTOM_TAB, '持仓'];
+  const counts = {'全部': rows.length, [CUSTOM_TAB]: customCount, '持仓': _holdings.size};
   for (const r of rows) {
+    if (r.category === CUSTOM_TAB) continue;
     if (!counts[r.category]) { order.push(r.category); counts[r.category] = 0; }
     counts[r.category]++;
   }
@@ -565,18 +572,19 @@ function updateBacktestStatus(backtest) {
   const btn = document.getElementById('btnBacktest');
   if (!el) return;
   const st = backtest || {};
+  const scheme = st.scheme_display_name || st.trade_timing_label || '收盘前15分钟';
   if (btn) btn.disabled = st.status === 'running';
   if (st.status === 'running') {
     el.textContent = '回测：运行中…';
     el.style.color = '#e3b341';
   } else if (st.status === 'ready') {
-    el.textContent = '回测：已更新 ' + (st.timestamp || '');
+    el.textContent = `回测：${scheme}方案已更新 ` + (st.timestamp || '');
     el.style.color = '#3fb950';
   } else if (st.status === 'error') {
     el.textContent = '回测：' + (st.error || '失败');
     el.style.color = '#f85149';
   } else {
-    el.textContent = '回测：收盘后自动执行，也可手动运行';
+    el.textContent = `回测：${scheme}方案，收盘后自动执行，也可手动运行`;
     el.style.color = '';
   }
 }

@@ -63,6 +63,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
     "models": {
         "active_selection_model": "multi_factor_v1",
+        "active_backtest_scheme": "before_close_15m",
         "selection": {
             "multi_factor_v1": {
                 "display_name": "多因子评分模型 v1",
@@ -98,6 +99,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
                     "ma20_down_ret3": -3,
                     "ma20_down_ret5": -5
                 }
+            }
+        },
+        "backtest": {
+            "before_close_15m": {
+                "display_name": "收盘前15分钟",
+                "window_days": 22,
+                "trade_time": "14:45",
+                "trade_timing_label": "收盘前15分钟",
+                "execution_price": "close",
             }
         }
     },

@@ -63,6 +63,19 @@ class TradeSignalBacktestTests(unittest.TestCase):
         self.assertIn("reason", first_trade)
         self.assertIn("return_pct", first_trade)
 
+    def test_backtest_model_uses_before_close_15m_scheme(self):
+        closes = [10 + i * 0.08 for i in range(45)]
+        df = make_history(closes)
+        bt = etf_strategy.backtest_model(df)
+
+        self.assertEqual(bt["scheme"], "before_close_15m")
+        self.assertEqual(bt["scheme_display_name"], "收盘前15分钟")
+        self.assertEqual(bt["trade_time"], "14:45")
+        self.assertEqual(bt["trade_timing_label"], "收盘前15分钟")
+        self.assertGreater(len(bt["trade_points"]), 0)
+        self.assertEqual(bt["trade_points"][0]["time"], "14:45")
+        self.assertIn("收盘前15分钟", bt["trade_points"][0]["label"])
+
     def test_select_top_adds_backtest_return_to_every_listed_symbol(self):
         pool = [{"code": f"AAA{i:02d}", "name": f"ETF{i}", "category": "测试"} for i in range(12)]
         etf_map = {

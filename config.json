@@ -91,9 +91,11 @@
     "_comment_auto_refresh_end_minute": "自动刷新结束时间，按当天 0 点后的分钟数表示。905 = 15:05。"
   },
   "models": {
-    "_comment": "模型配置。active_selection_model 指定当前选股模型；models.selection 下可扩展多个模型方案。",
+    "_comment": "模型配置。active_selection_model 指定当前选股模型；active_backtest_scheme 指定当前回测方案。models.selection / models.backtest 下可扩展多个方案。",
     "active_selection_model": "multi_factor_v1",
     "_comment_active_selection_model": "当前启用的选股模型名称，需对应 models.selection 下的 key。",
+    "active_backtest_scheme": "before_close_15m",
+    "_comment_active_backtest_scheme": "当前启用的回测方案名称，需对应 models.backtest 下的 key。",
     "selection": {
       "_comment": "选股模型参数集合。新增模型时在这里增加配置，并在 etf_strategy.py 注册模型类。",
       "multi_factor_v1": {
@@ -136,6 +138,17 @@
           "ma20_down_ret3": -3,
           "ma20_down_ret5": -5
         }
+      }
+    },
+    "backtest": {
+      "_comment": "回测方案集合。当前项目只有日 K 数据，收盘前 15 分钟方案用当日收盘价作为 14:45 附近成交价的近似。",
+      "before_close_15m": {
+        "_comment": "买卖点统一设定在 A 股 ETF 收盘前 15 分钟，即 14:45。",
+        "display_name": "收盘前15分钟",
+        "window_days": 22,
+        "trade_time": "14:45",
+        "trade_timing_label": "收盘前15分钟",
+        "execution_price": "close"
       }
     }
   }

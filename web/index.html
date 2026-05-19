@@ -41,7 +41,7 @@
         <input id="watchCode" maxlength="6" inputmode="numeric" placeholder="添加代码，如 513130" onkeydown="if(event.key==='Enter') addWatchlist()">
         <button class="btn" onclick="addWatchlist()">+ 添加到榜单</button>
       </div>
-      <div class="toolbar-hint" id="backtestStatus">回测：收盘后自动执行，也可手动运行</div>
+      <div class="toolbar-hint" id="backtestStatus">回测：收盘前15分钟方案，收盘后自动执行，也可手动运行</div>
     </div>
     <div class="table-wrap">
       <table>
@@ -60,7 +60,7 @@
             <th class="r sortable" data-sort="vol_ratio" onclick="sortBy('vol_ratio')">量比<span class="sort-icon">↕</span></th>
             <th>信号</th>
             <th style="text-align:center" class="sortable" data-sort="signal_sort" onclick="sortBy('signal_sort')">模型信号<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')">回测1月<span class="sort-icon">↕</span></th>
+            <th class="r sortable" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')" title="收盘前15分钟方案">回测1月<span class="sort-icon">↕</span></th>
             <th class="r sortable" data-sort="score" onclick="sortBy('score')">评分<span class="sort-icon">↕</span></th>
             <th style="text-align:center">操作</th>
           </tr>
@@ -84,7 +84,7 @@
       <span><strong>因子权重</strong>：动量 35% · 量能 25% · 技术 25% · 趋势 15%</span>
       <span><strong>硬过滤</strong>：RSI > 82 | 5日跌幅 > 9% | 破 MA20 且持续下跌</span>
       <span><strong>信号</strong>：↑ 均线多头 · ⚡ MACD 看多 · 🔥 量比≥1.5x · 超卖回弹</span>
-      <span><strong>模型信号</strong>：买入/持有、观望、考虑减仓/卖出；回测1月覆盖当前榜单全部标的</span>
+      <span><strong>模型信号</strong>：买入/持有、观望、考虑减仓/卖出；回测1月使用“收盘前15分钟”方案，覆盖当前榜单全部标的</span>
       <span style="color:#f85149"><strong>风险提示</strong>：仅供参考，不构成投资建议</span>
     </div>
   </div>

@@ -99,6 +99,16 @@ def get_selection_model_config(model_name: str | None = None) -> dict[str, Any]:
     return _without_comment_keys(copy.deepcopy(selection_cfg[active]))
 
 
+def get_backtest_scheme_config(scheme_name: str | None = None) -> tuple[str, dict[str, Any]]:
+    """读取回测方案配置；scheme_name 为空时使用当前 active_backtest_scheme。"""
+    models_cfg = CONFIG.get("models", {})
+    active = scheme_name or models_cfg.get("active_backtest_scheme", "before_close_15m")
+    schemes = models_cfg.get("backtest", {})
+    if active not in schemes:
+        raise ValueError(f"未知回测方案配置: {active}")
+    return active, _without_comment_keys(copy.deepcopy(schemes[active]))
+
+
 def _without_comment_keys(value: Any) -> Any:
     """去掉 config.json 中用于说明的 _comment 字段，避免进入模型计算。"""
     if isinstance(value, dict):
@@ -484,12 +494,48 @@ def _trade_reason(sig: dict, action: str) -> str:
     return "；".join(names[:3]) or ("模型买入" if action == "buy" else "模型卖出")
 
 
-def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
-    """用买卖信号对最近 window 个交易日做单标的一月回测。"""
+def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    if scheme_config is not None:
+        active = scheme_name or "custom"
+        cfg = _without_comment_keys(copy.deepcopy(scheme_config))
+    else:
+        active, cfg = get_backtest_scheme_config(scheme_name)
+    cfg.setdefault("display_name", active)
+    cfg.setdefault("window_days", 22)
+    cfg.setdefault("trade_time", "14:45")
+    cfg.setdefault("trade_timing_label", "收盘前15分钟")
+    cfg.setdefault("execution_price", "close")
+    return active, cfg
+
+
+def backtest_model(
+    df: pd.DataFrame,
+    window: int | None = None,
+    scheme_name: str | None = None,
+    scheme_config: dict[str, Any] | None = None,
+) -> dict:
+    """用买卖信号按指定回测方案做单标的回测。"""
+    active_scheme, scheme = _backtest_scheme_meta(scheme_name, scheme_config)
+    window_days = int(window if window is not None else scheme.get("window_days", 22))
+    trade_time = str(scheme.get("trade_time", "14:45"))
+    timing_label = str(scheme.get("trade_timing_label", "收盘前15分钟"))
+    price_source = str(scheme.get("execution_price", "close"))
+
+    base_result = {
+        "scheme": active_scheme,
+        "scheme_name": active_scheme,
+        "scheme_display_name": str(scheme.get("display_name", active_scheme)),
+        "trade_time": trade_time,
+        "trade_timing_label": timing_label,
+        "execution_price": price_source,
+        "price_note": "当前只有日 K 数据，成交价使用当日收盘价近似收盘前 15 分钟价格" if price_source == "close" else "",
+        "window_days": window_days,
+    }
+
     if df.empty or len(df) < 20:
         return {
+            **base_result,
             "return_pct": 0.0,
-            "window_days": int(window),
             "trades": 0,
             "holding": False,
             "entry_price": None,
@@ -499,7 +545,7 @@ def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
         }
 
     data = df.copy().reset_index(drop=True)
-    start = max(1, len(data) - int(window))
+    start = max(1, len(data) - window_days)
     cash = 1.0
     shares = 0.0
     entry_price = 0.0
@@ -522,9 +568,12 @@ def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
             trades += 1
             trade_points.append({
                 "action": "buy",
-                "label": "买入",
+                "label": f"买入（{timing_label}）",
                 "date": date_text,
+                "time": trade_time,
+                "trade_timing_label": timing_label,
                 "price": round(price, 4),
+                "price_source": price_source,
                 "reason": _trade_reason(sig, "buy"),
                 "return_pct": round((cash + shares * price - 1.0) * 100, 2),
             })
@@ -535,9 +584,12 @@ def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
             trades += 1
             trade_points.append({
                 "action": "sell",
-                "label": "卖出",
+                "label": f"卖出（{timing_label}）",
                 "date": date_text,
+                "time": trade_time,
+                "trade_timing_label": timing_label,
                 "price": round(price, 4),
+                "price_source": price_source,
                 "reason": _trade_reason(sig, "sell"),
                 "return_pct": round((cash - 1.0) * 100, 2),
             })
@@ -553,8 +605,8 @@ def backtest_model(df: pd.DataFrame, window: int = 22) -> dict:
     final_value = cash + shares * last_price
     return_pct = (final_value - 1.0) * 100
     return {
+        **base_result,
         "return_pct": round(return_pct, 2),
-        "window_days": int(window),
         "trades": trades,
         "holding": shares > 0,
         "entry_price": round(entry_price, 4) if entry_price else None,

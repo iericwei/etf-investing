@@ -129,5 +129,11 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
 
 def _apply_filter(items: list, min_amount: float, max_count: int) -> list:
     filtered = [i for i in items if i.get("amount", 0) >= min_amount]
+    if not filtered and items:
+        logger.warning(
+            f"[universe] 当前成交额均低于 {min_amount/1e8:.1f} 亿，"
+            "降级按成交额排序取前 N 只，避免早盘榜单为空"
+        )
+        filtered = list(items)
     filtered.sort(key=lambda x: x.get("amount", 0), reverse=True)
     return filtered[:max_count]
