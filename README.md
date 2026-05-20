@@ -18,7 +18,8 @@
 - 命令行报告：一键生成每日 ETF 优选榜。
 - Web Dashboard：浏览全市场优选结果、核心 Tab 快速切换，其他分类通过下拉选择，支持手动刷新。
 - 持仓监控：保存关注/持仓 ETF，实时查看行情和卖出参考信号；自动刷新仅在交易日盘中运行，收盘后和节假日自动暂停。
-- 独立行情服务：提供 `/quote` 与 `/health` API，方便其他本地工具调用。
+- 独立行情服务：提供 `/quote`、`/intraday`、`/intraday/futu` 与 `/health` API，方便其他本地工具调用。
+- 本地分钟行情库：独立服务提供 `/intraday`、`/backfill/today`、`/logs`，默认落地 5 分钟分时；回填脚本会合并全部榜单、自选列表、持仓列表和硬过滤后的全市场 ETF 池，并优先用 FUTU OpenAPI 回溯 30 天历史 5 分钟分时落库。
 - 一键部署：提供本地重启脚本和 Docker 一键部署脚本。
 
 ## 技术栈
@@ -28,7 +29,8 @@
 - pandas / numpy：K 线数据处理、指标与因子计算
 - requests：HTTP 数据源请求
 - mootdx：通达信行情协议数据源
-- akshare：回测使用东方财富 ETF 15 分钟分时行情（fund_etf_hist_min_em）
+- akshare：保留历史兼容测试；当前回测买卖点优先使用本地行情库 / FUTU 分时数据
+- futu-api：FUTU OpenD 本地行情接口，用于当天/历史分钟分时兜底
 
 依赖见 `requirements.txt`：
 
@@ -40,6 +42,7 @@ requests
 pandas
 numpy
 akshare
+futu-api
 ```
 
 ## 运行环境与网络要求
@@ -66,12 +69,13 @@ python etf_server.py
 
 ### 本地端口要求
 
-项目默认启动两个本地服务，端口由 `config.json` 的 `server` 配置控制：
+项目默认启动三个本地服务，端口由 `config.json` 的 `server` 配置控制：
 
 | 端口 | 服务 | 默认地址 | 说明 |
 | ---: | --- | --- | --- |
 | 8080 | Web Dashboard | `http://localhost:8080` | 浏览器访问的 ETF 选股页面 |
-| 5678 | 实时行情 API | `http://localhost:5678` | `/quote`、`/health` 本地接口 |
+| 5678 | 实时行情 API | `http://localhost:5678` | `/quote`、`/intraday`、`/intraday/futu`、`/health` 本地接口 |
+| 5680 | 本地分钟行情库 API | `http://localhost:5680` | `/intraday`、`/backfill/today`、`/logs`，SQLite 落库 |
 
 默认监听地址是 `0.0.0.0`。如果只在本机使用，可以改为 `127.0.0.1` 后重启服务；如果需要局域网其他设备访问，需要确保本机防火墙允许对应端口入站。
 
@@ -105,6 +109,8 @@ etf-investing/
 │       ├── config.py        # 集中配置加载模块，读取项目根目录 config.json
 │       ├── daily.py         # 命令行 ETF 每日选股报告实现
 │       ├── data.py          # 历史 K 线与实时行情数据获取层
+│       ├── market_data.py    # SQLite 本地分钟行情库、东方财富/FUTU 数据源切换、请求日志
+│       ├── market_data_service.py # 本地行情库 API 服务
 │       ├── pool.py          # 静态 ETF 候选池，作为全市场接口失败时的降级数据
 │       ├── server.py        # 独立实时行情 API 服务实现
 │       ├── strategy.py      # 技术指标、选股模型、卖出信号模型
@@ -116,6 +122,8 @@ etf-investing/
 ├── etf_daily.py             # 兼容入口：转发到 etf_investing.daily.main
 ├── etf_web.py               # 兼容入口：转发到 etf_investing.web_app.main
 ├── etf_server.py            # 兼容入口：转发到 etf_investing.server.main
+├── market_data_service.py   # 兼容入口：转发到 etf_investing.market_data_service.main
+├── backfill_intraday.py     # 收盘后回填当天分钟行情到 SQLite 行情库
 ├── restart.sh               # 本地一键启动/停止/重启脚本
 ├── docker-deploy.sh         # Docker 一键部署脚本
 ├── Dockerfile               # Docker 镜像构建文件
@@ -143,11 +151,46 @@ etf-investing/
 - `network.timeouts`：外部接口请求超时时间，单位秒。
 - `selection`：成交额门槛、扫描数量、历史 K 线天数、并发线程数、评分数量等。
 - `models`：选股模型配置；`active_selection_model` 指定当前模型，`models.selection.multi_factor_v1` 配置默认多因子模型的权重、内部参数和硬过滤阈值。
-- `server`：Web Dashboard 端口、独立行情服务端口、监听地址、行情缓存 TTL、debug 开关。
+- `server`：Web Dashboard 端口、独立行情服务端口、本地分钟行情库服务端口、监听地址、行情缓存 TTL、debug 开关。
+- `futu`：FUTU OpenD 连接配置，默认 `host=127.0.0.1`、`port=11111`；回测和回填会优先使用 FUTU 5 分钟分时，回填脚本默认回溯 30 天历史分时。
 - `time`：日期、时间戳、报告标题、行情更新时间格式。
 - `web`：前端轮询间隔、持仓刷新间隔、交易时段自动刷新窗口；持仓自动刷新会通过交易日历跳过收盘后和节假日/非交易日。
 
 修改 `config.json` 后需要重启对应服务才能生效。
+
+### 本地分钟行情库服务
+
+```bash
+# 一键启动会同时启动 5678 实时行情 API、5680 本地行情库 API、8080 Web Dashboard
+./restart.sh restart
+
+# 请求分钟行情：优先读本地 SQLite；不传 period 时默认 5 分钟；当天缺失或 refresh=1 时先试东方财富，空数据再降级 FUTU OpenAPI
+curl 'http://localhost:5680/intraday?code=513180&days=5'
+curl 'http://localhost:5680/intraday?code=513180&period=5&days=5&refresh=1'
+
+# quote 服务中直接用 FUTU OpenAPI 获取当天分时行情
+curl 'http://localhost:5678/intraday/futu?code=513180&period=15'
+curl 'http://localhost:5678/intraday?code=513180&period=15&source=futu'
+
+# 查看行情库请求日志
+curl 'http://localhost:5680/logs?limit=20'
+
+# 收盘后按综合池回填 30 天历史 5 分钟行情到 data/market_data.sqlite3
+# 综合池 = 全部榜单 + 自选列表 + 持仓列表 + 硬过滤后的全市场 ETF 池；优先直接用 FUTU 历史分时，自动按 FUTU 频率限制分批等待
+.venv/bin/python backfill_intraday.py
+
+# 可以调整榜单数量/回溯天数，默认 top=selection.web_top_n、days=30
+.venv/bin/python backfill_intraday.py --top 50 --days 30
+
+# 也可以只回填指定代码
+.venv/bin/python backfill_intraday.py --codes 513180,513130 --period 5
+
+# 手动按指定日期落库历史 5 分钟分时，--date 省略时默认当天
+.venv/bin/python backfill_intraday_date.py --date 2026-05-20
+.venv/bin/python backfill_intraday_date.py --codes 513180,513130 --date 2026-05-20
+```
+
+FUTU 降级源需要本机已安装 `futu-api` 并启动 FUTU OpenD；连接配置位于 `config.json` / `config.py` 的 `futu.host`、`futu.port`。
 
 ## 安装
 
@@ -410,7 +453,11 @@ Web Dashboard 的“回测1月”默认使用 `models.active_backtest_scheme = b
 }
 ```
 
-注意：项目当前只有日 K 数据，没有分钟线；因此该方案会把买卖点标记为 14:45，并使用当天 K 线 `close` 作为收盘前 15 分钟附近成交价的近似。
+回测买卖点会标记为 14:45，并按以下优先级取“收盘前 15 分钟”价格：
+
+1. 先读本地行情库 `data/market_data.sqlite3` 中的 5 分钟分时，价格来源标记为 `local`。
+2. 如果本地无分时，则实时调用 FUTU API 获取 5 分钟分时；成功后写回本地行情库，价格来源标记为 `futu`。
+3. 如果 FUTU 也没有可用分时，则用当天日 K `close` 近似，价格来源标记为 `日k`。
 
 回测流程：
 
@@ -418,7 +465,7 @@ Web Dashboard 的“回测1月”默认使用 `models.active_backtest_scheme = b
 2. 使用方案中的 `window_days` 个交易日，默认 22，约等于一个交易月。
 3. 初始资金设为 `1.0`，不加杠杆，不考虑手续费、滑点、申赎费、印花税或最小交易单位。
 4. 每个交易日只使用截至当天收盘的历史数据重新计算 `compute_trade_signal`，避免使用未来数据。
-5. 买卖成交价使用当天 K 线的 `close` 收盘价；回测中不会使用实时价。
+5. 买卖成交价优先使用本地行情库的 14:45 分时价，本地缺失时调用 FUTU 并写库，仍缺失时才使用日 K `close`；回测中不会使用实时盘口价。
 6. 空仓时遇到 `buy` 信号，全仓买入：`shares = cash / close`，`cash = 0`。
 7. 持仓时遇到 `sell` 信号，全部卖出：`cash = shares * close`，`shares = 0`。
 8. 已持仓时再次出现 `buy` 不加仓；空仓时出现 `sell` 不做空。
@@ -434,8 +481,8 @@ Web Dashboard 的“回测1月”默认使用 `models.active_backtest_scheme = b
 | `date` | 若 K 线有 `date` 字段，格式化为 `MM-DD`；否则使用数据位置序号 |
 | `time` | 买卖点时间，当前方案固定为 `14:45` |
 | `trade_timing_label` | 买卖点时间说明，当前为“收盘前15分钟” |
-| `price` | 触发当天的收盘价，保留 4 位小数 |
-| `price_source` | 成交价格来源，当前为 `close` |
+| `price` | 触发当天的成交价，优先取 14:45 分时价，保留 4 位小数 |
+| `price_source` | 成交价格来源：`local` / `futu` / `日k` |
 | `reason` | 触发信号原因，最多取前三个信号名称，用 `；` 拼接 |
 | `return_pct` | 该买卖点发生后的策略累计收益率 |
 

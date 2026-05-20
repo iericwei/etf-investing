@@ -7,9 +7,13 @@
 import re
 import json
 import logging
+import random
+import shlex
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -142,6 +146,294 @@ def fetch_all_history(pool: list, days: int | None = None, workers: int | None =
     return result
 
 
+# ── 东方财富历史分时 K（回测成交价）──────────────────────────────────────
+
+_VALID_INTRADAY_PERIODS = {"1", "5", "15", "30", "60"}
+_USER_AGENTS_FILE = Path(__file__).with_name("user_agents.txt")
+_BROWSER_HEADERS_FILE = Path(__file__).with_name("headers.txt")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_EASTMONEY_CURL_LOG_FILE = _PROJECT_ROOT / "logs" / "eastmoney_intraday_curl.log"
+
+
+@lru_cache(maxsize=1)
+def _load_user_agents() -> list[str]:
+    try:
+        lines = _USER_AGENTS_FILE.read_text(encoding="utf-8").splitlines()
+    except Exception as e:
+        logger.debug(f"[eastmoney_intraday] user-agent 文件读取失败: {e}")
+        return [CONFIG["headers"]["user_agent"]]
+    user_agents = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    return user_agents or [CONFIG["headers"]["user_agent"]]
+
+
+def _parse_curl_headers_file(path: Path) -> dict[str, str]:
+    """解析浏览器复制出来的 curl header 文件（-H / -b 格式）。"""
+    text = path.read_text(encoding="utf-8")
+    headers = {name.strip(): value.strip() for name, value in re.findall(r"-H '([^:]+): (.*?)'", text)}
+    cookie = re.search(r"-b '([^']+)'", text)
+    if cookie:
+        headers["Cookie"] = cookie.group(1).strip()
+    return headers
+
+
+def _eastmoney_cookie() -> str:
+    """生成和东方财富页面相似的统计 Cookie，降低接口被当作脚本请求的概率。"""
+    now = datetime.now()
+    ymd_hms = now.strftime("%Y%m%d%H%M%S")
+    rand14 = lambda: random.randint(10**13, 10**14 - 1)
+    rand32 = lambda: f"{random.getrandbits(128):032x}"
+    return "; ".join([
+        f"qgqp_b_id={rand32()}",
+        f"st_si={rand14()}",
+        "st_asi=delete",
+        f"st_pvi={rand14()}",
+        f"st_sp={now.strftime('%Y-%m-%d')}%20{now.strftime('%H%%3A%M%%3A%S')}",
+        "st_inirUrl=https%3A%2F%2Fwww.google.com.hk%2F",
+        f"st_sn={random.randint(1, 9)}",
+        f"st_psi={ymd_hms}{random.randint(100, 999)}-113200301327-{random.randint(10**9, 10**10 - 1)}",
+    ])
+
+
+def _chrome_header_profile(user_agent: str, platform: str, sec_ch_ua: str | None = None) -> dict[str, str]:
+    if sec_ch_ua is None:
+        sec_ch_ua = '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"'
+    return {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-TW;q=0.6",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": random.choice(["max-age=0", "no-cache"]),
+        "Connection": "keep-alive",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": random.choice(["none", "same-site"]),
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": user_agent,
+        "sec-ch-ua": sec_ch_ua,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": f'"{platform}"',
+        "Cookie": _eastmoney_cookie(),
+    }
+
+
+@lru_cache(maxsize=1)
+def _load_eastmoney_header_profiles() -> list[dict[str, str]]:
+    """加载一批完整浏览器指纹 header；优先包含 headers.txt 里实测成功的完整 header。"""
+    profiles: list[dict[str, str]] = []
+    if _BROWSER_HEADERS_FILE.exists():
+        try:
+            parsed = _parse_curl_headers_file(_BROWSER_HEADERS_FILE)
+            if parsed.get("User-Agent"):
+                profiles.append(parsed)
+        except Exception as e:
+            logger.debug(f"[eastmoney_intraday] headers.txt 读取失败: {e}")
+
+    profiles.extend([
+        _chrome_header_profile(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            "macOS",
+        ),
+        _chrome_header_profile(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            "Windows",
+        ),
+        _chrome_header_profile(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            "Linux",
+        ),
+        _chrome_header_profile(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+            "Windows",
+            '"Chromium";v="148", "Microsoft Edge";v="148", "Not/A)Brand";v="99"',
+        ),
+    ])
+    return profiles
+
+
+def _eastmoney_intraday_header_candidates() -> list[dict[str, str]]:
+    profiles = list(_load_eastmoney_header_profiles())
+    if len(profiles) <= 1:
+        ordered = profiles
+    else:
+        # headers.txt 里的实测成功指纹优先尝试，其余相似指纹随机轮换。
+        ordered = [profiles[0], *random.sample(profiles[1:], k=len(profiles) - 1)]
+    return [_eastmoney_intraday_headers(profile) for profile in ordered]
+
+
+def _eastmoney_intraday_headers(profile: dict[str, str] | None = None) -> dict[str, str]:
+    headers = request_headers("eastmoney")
+    if profile is None:
+        profile = random.choice(_load_eastmoney_header_profiles())
+    headers.update(dict(profile))
+    return headers
+
+
+def _build_curl_command(method: str, prepared_url: str, headers: dict[str, str]) -> str:
+    parts = ["curl", "--noproxy", "*", "-L", "--max-time", "20", "-X", method.upper()]
+    for name, value in headers.items():
+        parts.extend(["-H", f"{name}: {value}"])
+    parts.append(prepared_url)
+    return " ".join(shlex.quote(str(part)) for part in parts)
+
+
+def _log_eastmoney_intraday_curl(
+    prepared_url: str,
+    headers: dict[str, str],
+    *,
+    code: str,
+    period: str,
+    days: int,
+    profile_index: int,
+    attempt: int,
+    result: str = "pending",
+) -> None:
+    """把每次东方财富分时测试请求写成可复制执行的完整 curl，方便手工复现。"""
+    try:
+        _EASTMONEY_CURL_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        curl = _build_curl_command("GET", prepared_url, headers)
+        line = (
+            f"\n# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+            f"code={code} period={period} days={days} profile={profile_index} attempt={attempt} result={result}\n"
+            f"{curl}\n"
+        )
+        with _EASTMONEY_CURL_LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        logger.debug(f"[eastmoney_intraday] curl 日志写入失败: {e}")
+
+
+def _eastmoney_direct_get(url: str, params: dict[str, str], headers: dict[str, str], timeout: int | float) -> requests.Response:
+    """直接请求东方财富，明确关闭 requests 对环境代理的继承。"""
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        return session.get(url, params=params, headers=headers, timeout=timeout)
+    finally:
+        session.close()
+
+
+def _prepare_request_url(url: str, params: dict[str, str], headers: dict[str, str]) -> str:
+    request = requests.Request("GET", url, params=params, headers=headers)
+    return request.prepare().url or url
+
+
+def _eastmoney_secid(code: str) -> str:
+    code = str(code).strip().zfill(6)[-6:]
+    _, prefix = detect_market(code)
+    market = "1" if prefix == "sh" else "0"
+    return f"{market}.{code}"
+
+
+def fetch_eastmoney_intraday_history(code: str, period: str = "15", days: int = 35) -> pd.DataFrame:
+    """
+    直接调用东方财富 push2his 历史分时接口获取 ETF 分钟 K 线。
+
+    返回列: datetime, date, time, open, close, high, low, volume, amount。
+    接口不可用、参数异常或返回异常时返回空 DataFrame。
+    """
+    code = str(code).strip().zfill(6)[-6:]
+    period = str(period)
+    if period not in _VALID_INTRADAY_PERIODS:
+        logger.debug(f"[eastmoney_intraday] unsupported period={period}")
+        return pd.DataFrame()
+
+    days = max(int(days), 1)
+    end_dt = datetime.now()
+    start_dt = end_dt - timedelta(days=days)
+    params = {
+        "secid": _eastmoney_secid(code),
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+        "klt": period,
+        "fqt": "1",
+        "beg": start_dt.strftime("%Y%m%d"),
+        "end": end_dt.strftime("%Y%m%d"),
+        "lmt": "100000",
+    }
+    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+
+    try:
+        timeout = CONFIG["network"]["timeouts"].get("eastmoney_intraday", 8)
+        last_error: Exception | None = None
+        payload = None
+        klines = []
+        for profile_index, headers in enumerate(_eastmoney_intraday_header_candidates(), start=1):
+            prepared_url = _prepare_request_url(url, params, headers)
+            for attempt in range(1, 4):
+                _log_eastmoney_intraday_curl(
+                    prepared_url,
+                    headers,
+                    code=code,
+                    period=period,
+                    days=days,
+                    profile_index=profile_index,
+                    attempt=attempt,
+                )
+                try:
+                    response = _eastmoney_direct_get(url, params, headers, timeout)
+                    response.raise_for_status()
+                    payload = response.json()
+                    klines = ((payload or {}).get("data") or {}).get("klines") or []
+                    _log_eastmoney_intraday_curl(
+                        prepared_url,
+                        headers,
+                        code=code,
+                        period=period,
+                        days=days,
+                        profile_index=profile_index,
+                        attempt=attempt,
+                        result=f"http={response.status_code} klines={len(klines)}",
+                    )
+                    if klines:
+                        break
+                except Exception as e:
+                    last_error = e
+                    _log_eastmoney_intraday_curl(
+                        prepared_url,
+                        headers,
+                        code=code,
+                        period=period,
+                        days=days,
+                        profile_index=profile_index,
+                        attempt=attempt,
+                        result=f"error={type(e).__name__}: {e}",
+                    )
+            if klines:
+                break
+        if not klines and last_error is not None:
+            logger.debug(f"[eastmoney_intraday] {code}: 所有浏览器 header 均失败或无数据，最后错误: {last_error}")
+        rows = []
+        for item in klines:
+            parts = str(item).split(",")
+            if len(parts) < 7:
+                continue
+            rows.append({
+                "datetime": parts[0],
+                "open": parts[1],
+                "close": parts[2],
+                "high": parts[3],
+                "low": parts[4],
+                "volume": parts[5],
+                "amount": parts[6],
+            })
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+        df = df.dropna(subset=["datetime"])
+        if df.empty:
+            return pd.DataFrame()
+        df["date"] = df["datetime"].dt.normalize()
+        df["time"] = df["datetime"].dt.strftime("%H:%M")
+        for col in ["open", "close", "high", "low", "volume", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        keep = ["datetime", "date", "time", "open", "close", "high", "low", "volume", "amount"]
+        return df[keep].dropna(subset=["close"]).sort_values("datetime").reset_index(drop=True)
+    except Exception as e:
+        logger.debug(f"[eastmoney_intraday] {code}: {e}")
+        return pd.DataFrame()
+
+
 # ── 15 分钟分时 K（回测成交价）──────────────────────────────────────────
 
 @contextmanager
@@ -166,10 +458,20 @@ def _requests_without_environment_proxy():
 
 def fetch_etf_15m_history(code: str, days: int = 35) -> pd.DataFrame:
     """
-    通过 akshare fund_etf_hist_min_em 获取 ETF 15 分钟分时行情。
+    通过东方财富 push2his 接口获取 ETF 15 分钟分时行情。
 
     返回列: datetime, date, time, open, close, high, low, volume, amount。
-    接口不可用、akshare 未安装或返回异常时返回空 DataFrame，调用方保持原有日 K 回测逻辑。
+    东方财富接口不可用时返回空 DataFrame，调用方保持原有日 K 回测逻辑。
+    """
+    return fetch_eastmoney_intraday_history(code, period="15", days=days)
+
+
+def fetch_etf_15m_history_akshare(code: str, days: int = 35) -> pd.DataFrame:
+    """
+    通过 akshare fund_etf_hist_min_em 获取 ETF 15 分钟分时行情（保留为备用实现）。
+
+    返回列: datetime, date, time, open, close, high, low, volume, amount。
+    接口不可用、akshare 未安装或返回异常时返回空 DataFrame。
     """
     try:
         import akshare as ak

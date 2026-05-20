@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -93,6 +94,121 @@ class TradeSignalBacktestTests(unittest.TestCase):
             self.assertIn("curve", row["backtest"])
             self.assertIn("trade_points", row["backtest"])
             self.assertGreater(len(row["backtest"]["curve"]), 0)
+
+    def test_backtest_model_uses_local_store_price_before_futu_and_daily_k(self):
+        closes = [10 + i * 0.08 for i in range(45)]
+        df = make_history(closes)
+        trade_date = pd.to_datetime(df.iloc[-22]["date"]).normalize()
+        local_intraday = pd.DataFrame({
+            "datetime": [trade_date + pd.Timedelta(hours=14, minutes=45)],
+            "time": ["14:45"],
+            "close": [88.88],
+        })
+
+        class DummyStore:
+            def __init__(self):
+                self.saved = []
+            def load_intraday(self, code, period, start_date, end_date):
+                self.loaded = (code, period, start_date, end_date)
+                return local_intraday
+            def save_intraday(self, code, period, data, source):
+                self.saved.append((code, period, source, len(data)))
+                return len(data)
+
+        store = DummyStore()
+        with patch.object(etf_strategy, "fetch_futu_intraday_history") as futu:
+            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=store)
+
+        self.assertFalse(futu.called)
+        self.assertEqual(bt["execution_price"], "local")
+        self.assertEqual(bt["price_source_label"], "local")
+        first_trade = bt["trade_points"][0]
+        self.assertEqual(first_trade["price"], 88.88)
+        self.assertEqual(first_trade["price_source"], "local")
+        self.assertEqual(first_trade["price_source_label"], "local")
+
+    def test_backtest_model_fetches_futu_when_local_missing_and_saves_to_store(self):
+        closes = [10 + i * 0.08 for i in range(45)]
+        df = make_history(closes)
+        trade_date = pd.to_datetime(df.iloc[-22]["date"]).normalize()
+        futu_intraday = pd.DataFrame({
+            "datetime": [trade_date + pd.Timedelta(hours=14, minutes=45)],
+            "time": ["14:45"],
+            "close": [77.77],
+        })
+
+        class DummyStore:
+            def __init__(self):
+                self.saved = []
+            def load_intraday(self, code, period, start_date, end_date):
+                return pd.DataFrame()
+            def save_intraday(self, code, period, data, source):
+                self.saved.append((code, period, source, len(data)))
+                return len(data)
+
+        store = DummyStore()
+        result = type("Result", (), {"df": futu_intraday, "source": "futu", "error": None})()
+        with patch.object(etf_strategy, "fetch_futu_intraday_history", return_value=result) as futu:
+            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=store)
+
+        futu.assert_called_once()
+        self.assertEqual(store.saved, [("513180", "5", "futu", 1)])
+        self.assertEqual(bt["execution_price"], "futu")
+        first_trade = bt["trade_points"][0]
+        self.assertEqual(first_trade["price"], 77.77)
+        self.assertEqual(first_trade["price_source"], "futu")
+        self.assertEqual(first_trade["price_source_label"], "futu")
+
+    def test_backtest_model_falls_back_to_daily_k_price_source_label(self):
+        closes = [10 + i * 0.08 for i in range(45)]
+        df = make_history(closes)
+
+        class DummyStore:
+            def load_intraday(self, code, period, start_date, end_date):
+                return pd.DataFrame()
+            def save_intraday(self, code, period, data, source):
+                raise AssertionError("empty futu data should not be saved")
+
+        empty_result = type("Result", (), {"df": pd.DataFrame(), "source": "futu", "error": None})()
+        with patch.object(etf_strategy, "fetch_futu_intraday_history", return_value=empty_result):
+            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=DummyStore())
+
+        self.assertEqual(bt["execution_price"], "日k")
+        first_trade = bt["trade_points"][0]
+        self.assertEqual(first_trade["price_source"], "日k")
+        self.assertEqual(first_trade["price_source_label"], "日k")
+
+    def test_backtest_model_ignores_legacy_intraday_when_code_forces_daily_k_after_futu_empty(self):
+        closes = [10 + i * 0.08 for i in range(45)]
+        df = make_history(closes)
+        trade_date = pd.to_datetime(df.iloc[-22]["date"]).normalize()
+        intraday = pd.DataFrame({
+            "datetime": [trade_date + pd.Timedelta(hours=14, minutes=45)],
+            "date": [trade_date],
+            "time": ["14:45"],
+            "close": [88.88],
+        })
+        class DummyStore:
+            def load_intraday(self, code, period, start_date, end_date):
+                return pd.DataFrame()
+            def save_intraday(self, code, period, data, source):
+                raise AssertionError("empty futu data should not be saved")
+
+        store = DummyStore()
+        empty_result = type("Result", (), {"df": pd.DataFrame(), "source": "futu", "error": None})()
+
+        with patch("etf_investing.strategy.fetch_futu_intraday_history", return_value=empty_result):
+            bt = etf_strategy.backtest_model(
+                df,
+                window=22,
+                code="513180",
+                intraday=intraday,
+                market_data_store=store,
+            )
+
+        first_trade = bt["trade_points"][0]
+        self.assertEqual(first_trade["price_source"], "日k")
+        self.assertNotEqual(first_trade["price"], 88.88)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "network": {
         "timeouts": {
             "eastmoney_universe": 15,
+            "eastmoney_intraday": 8,
             "tencent_history": 10,
             "tencent_realtime": 8,
         }
@@ -114,9 +115,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "server": {
         "host": "0.0.0.0",
         "quote_port": 5678,
+        "market_data_port": 5680,
         "web_port": 8080,
         "quote_cache_ttl_seconds": 5,
         "debug": False,
+    },
+    "futu": {
+        "host": "127.0.0.1",
+        "port": 11111,
     },
     "time": {
         "date_format": "%Y-%m-%d",

@@ -108,7 +108,7 @@ class FrontendCustomTabTests(unittest.TestCase):
                     date: '2026-05-18',
                     time: '14:45',
                     price: 1.234,
-                    price_source_label: 'akshare 15分钟分时行情价',
+                    price_source_label: 'local',
                     reason: '模型买入',
                     return_pct: 0,
                   }],
@@ -117,7 +117,7 @@ class FrontendCustomTabTests(unittest.TestCase):
             """
         )
 
-        self.assertIn("akshare 15分钟分时行情价", html)
+        self.assertIn("local", html)
 
     def test_render_can_preserve_custom_tab_after_lightweight_refresh(self):
         result = self._run_app_js(

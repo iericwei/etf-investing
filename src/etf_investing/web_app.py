@@ -523,6 +523,7 @@ def _run_backtest_async(force: bool = False):
                         etf_map[code],
                         window=window_days,
                         intraday=None if intraday.empty else intraday,
+                        code=code,
                     )
                     r["backtest"] = bt
                     r["backtest_return_pct"] = bt["return_pct"]

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .config import CONFIG
+from .market_data import DEFAULT_INTRADAY_PERIOD, MarketDataStore, fetch_futu_intraday_history, normalize_code
 
 
 # ── 技术指标计算 ───────────────────────────────────────────────────────
@@ -375,6 +376,7 @@ def select_top(
                 enriched[code],
                 window=22,
                 intraday=(intraday_map or {}).get(code),
+                code=code,
             )
             item["backtest"] = bt
             item["backtest_return_pct"] = bt["return_pct"]
@@ -532,6 +534,66 @@ def _prepare_intraday_lookup(intraday: pd.DataFrame | None, trade_time: str) -> 
     return lookup
 
 
+def _prepare_intraday_source_lookup(intraday: pd.DataFrame | None, trade_time: str, source: str) -> dict[pd.Timestamp, dict[str, Any]]:
+    price_lookup = _prepare_intraday_lookup(intraday, trade_time)
+    return {date_key: {"price": price, "source": source} for date_key, price in price_lookup.items()}
+
+
+def _backtest_date_range(data: pd.DataFrame, start: int) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    dates = pd.to_datetime(data.iloc[start:]["date"], errors="coerce").dropna()
+    if dates.empty:
+        return None, None
+    return dates.min().normalize(), dates.max().normalize()
+
+
+def _resolve_backtest_price_lookup(
+    data: pd.DataFrame,
+    *,
+    code: str | None,
+    start: int,
+    window_days: int,
+    trade_time: str,
+    intraday: pd.DataFrame | None = None,
+    market_data_store: Any | None = None,
+) -> dict[pd.Timestamp, dict[str, Any]]:
+    """按 local → futu → 调用方传入旧分时 的顺序准备回测成交价。"""
+    if code and str(code).strip().isdigit():
+        normalized_code = normalize_code(code)
+        store = market_data_store or MarketDataStore()
+        start_date, end_date = _backtest_date_range(data, start)
+        if start_date is None or end_date is None:
+            return _prepare_intraday_source_lookup(intraday, trade_time, "local")
+        local_df = store.load_intraday(normalized_code, DEFAULT_INTRADAY_PERIOD, start_date.date(), end_date.date())
+        local_lookup = _prepare_intraday_source_lookup(local_df, trade_time, "local")
+        if local_lookup:
+            return local_lookup
+        futu_result = fetch_futu_intraday_history(normalized_code, period=DEFAULT_INTRADAY_PERIOD, days=max(window_days, 3))
+        if not futu_result.df.empty:
+            store.save_intraday(normalized_code, DEFAULT_INTRADAY_PERIOD, futu_result.df, "futu")
+            return _prepare_intraday_source_lookup(futu_result.df, trade_time, "futu")
+        return {}
+    # 兼容旧调用：没有代码时，调用方传入的分时视为本地已取得的行情。
+    return _prepare_intraday_source_lookup(intraday, trade_time, "local")
+
+
+_PRICE_SOURCE_NOTES = {
+    "local": "成交价使用本地行情库的 5 分钟分时行情，取每个交易日 14:45 K 线收盘价",
+    "futu": "成交价使用 FUTU OpenAPI 实时获取的 5 分钟分时行情，取每个交易日 14:45 K 线收盘价，并已写入本地行情库",
+    "日k": "本地行情库和 FUTU 均无可用分时数据，成交价使用当日 K 线收盘价近似收盘前 15 分钟价格",
+}
+
+
+def _dominant_price_source(lookup: dict[pd.Timestamp, dict[str, Any]]) -> str:
+    if not lookup:
+        return "日k"
+    sources = [str(item.get("source") or "") for item in lookup.values()]
+    if "local" in sources:
+        return "local"
+    if "futu" in sources:
+        return "futu"
+    return sources[0] or "日k"
+
+
 def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     if scheme_config is not None:
         active = scheme_name or "custom"
@@ -548,10 +610,10 @@ def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[st
 
 def _price_source_label(source: str) -> str:
     """把回测成交价格来源转成买卖点明细里展示的中文说明。"""
-    if source == "akshare_15m":
-        return "akshare 15分钟分时行情价"
-    if source == "close":
-        return "日K收盘价"
+    if source in {"local", "futu", "日k"}:
+        return source
+    if source in {"eastmoney_15m", "akshare_15m", "close"}:
+        return {"eastmoney_15m": "local", "akshare_15m": "local", "close": "日k"}[source]
     return source
 
 
@@ -561,20 +623,27 @@ def backtest_model(
     scheme_name: str | None = None,
     scheme_config: dict[str, Any] | None = None,
     intraday: pd.DataFrame | None = None,
+    code: str | None = None,
+    market_data_store: Any | None = None,
 ) -> dict:
     """用买卖信号按指定回测方案做单标的回测。"""
     active_scheme, scheme = _backtest_scheme_meta(scheme_name, scheme_config)
     window_days = int(window if window is not None else scheme.get("window_days", 22))
     trade_time = str(scheme.get("trade_time", "14:45"))
     timing_label = str(scheme.get("trade_timing_label", "收盘前15分钟"))
-    intraday_lookup = _prepare_intraday_lookup(intraday, trade_time)
-    has_intraday_price = bool(intraday_lookup)
-    price_source = "akshare_15m" if has_intraday_price else str(scheme.get("execution_price", "close"))
-    price_note = (
-        "成交价使用 akshare fund_etf_hist_min_em 的 15 分钟分时行情，取每个交易日 14:45 K 线收盘价"
-        if has_intraday_price
-        else "当前只有日 K 数据，成交价使用当日收盘价近似收盘前 15 分钟价格" if price_source == "close" else ""
-    )
+    data = df.copy().reset_index(drop=True)
+    start = max(1, len(data) - window_days) if not data.empty else 1
+    intraday_lookup = _resolve_backtest_price_lookup(
+        data,
+        code=code,
+        start=start,
+        window_days=window_days,
+        trade_time=trade_time,
+        intraday=intraday,
+        market_data_store=market_data_store,
+    ) if not data.empty else {}
+    price_source = _dominant_price_source(intraday_lookup)
+    price_note = _PRICE_SOURCE_NOTES.get(price_source, "")
 
     base_result = {
         "scheme": active_scheme,
@@ -583,6 +652,7 @@ def backtest_model(
         "trade_time": trade_time,
         "trade_timing_label": timing_label,
         "execution_price": price_source,
+        "price_source_label": _price_source_label(price_source),
         "price_note": price_note,
         "window_days": window_days,
     }
@@ -599,8 +669,6 @@ def backtest_model(
             "status": "数据不足",
         }
 
-    data = df.copy().reset_index(drop=True)
-    start = max(1, len(data) - window_days)
     cash = 1.0
     shares = 0.0
     entry_price = 0.0
@@ -618,8 +686,13 @@ def backtest_model(
         except Exception:
             date_key = None
         daily_price = _safe_float(row.get("close"))
-        price = intraday_lookup.get(date_key, daily_price) if date_key is not None else daily_price
-        trade_price_source = "akshare_15m" if date_key is not None and date_key in intraday_lookup else str(scheme.get("execution_price", "close"))
+        lookup_item = intraday_lookup.get(date_key) if date_key is not None else None
+        if lookup_item:
+            price = _safe_float(lookup_item.get("price"))
+            trade_price_source = str(lookup_item.get("source") or "local")
+        else:
+            price = daily_price
+            trade_price_source = "日k"
         trade_price_source_label = _price_source_label(trade_price_source)
         if price <= 0:
             continue
@@ -672,7 +745,8 @@ def backtest_model(
     except Exception:
         last_date_key = None
     last_daily_price = _safe_float(last_row.get("close"))
-    last_price = intraday_lookup.get(last_date_key, last_daily_price) if last_date_key is not None else last_daily_price
+    last_lookup_item = intraday_lookup.get(last_date_key) if last_date_key is not None else None
+    last_price = _safe_float(last_lookup_item.get("price")) if last_lookup_item else last_daily_price
     final_value = cash + shares * last_price
     return_pct = (final_value - 1.0) * 100
     return {

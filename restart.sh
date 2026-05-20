@@ -9,8 +9,10 @@ set -euo pipefail
 # ---- 配置 ----
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVER_PY="etf_server.py"
+MARKET_DATA_PY="market_data_service.py"
 WEB_PY="etf_web.py"
 SERVER_LOG="$SCRIPT_DIR/logs/server.log"
+MARKET_DATA_LOG="$SCRIPT_DIR/logs/market_data_service.log"
 WEB_LOG="$SCRIPT_DIR/logs/web.log"
 PID_DIR="$SCRIPT_DIR/.pids"
 
@@ -27,7 +29,7 @@ find_pids() {
 kill_pids_for() {
   local name="$1"
   local pids
-  pids=$(find_pids "$name")
+  pids=$(find_pids "$name" || true)
   if [ -z "$pids" ]; then
     log "$name 未运行"
     return
@@ -84,7 +86,7 @@ check_running() {
   fi
   # 备用：通过进程名查找
   local found
-  found=$(find_pids "$name")
+  found=$(find_pids "$name" || true)
   if [ -n "$found" ]; then
     echo "RUNNING (PID: $found)"
     return 0
@@ -100,6 +102,7 @@ case "$ACTION" in
   stop)
     log "=== 停止服务 ==="
     kill_pids_for "$SERVER_PY"
+    kill_pids_for "$MARKET_DATA_PY"
     kill_pids_for "$WEB_PY"
     log "=== 已全部停止 ==="
     ;;
@@ -108,10 +111,13 @@ case "$ACTION" in
     log "=== 启动服务 ==="
     start_server "server" "$SERVER_PY" "$SERVER_LOG"
     sleep 1
+    start_server "market_data" "$MARKET_DATA_PY" "$MARKET_DATA_LOG"
+    sleep 1
     start_server "web" "$WEB_PY" "$WEB_LOG"
     sleep 1
     log "=== 启动完成 ==="
     log "实时行情服务: http://localhost:5678"
+    log "本地行情库服务: http://localhost:5680"
     log "Web Dashboard: http://localhost:8080"
     ;;
 
@@ -119,6 +125,8 @@ case "$ACTION" in
     log "=== 服务状态 ==="
     echo -n "  实时行情服务 ($SERVER_PY): "
     check_running "$SERVER_PY" || true
+    echo -n "  本地行情库服务 ($MARKET_DATA_PY): "
+    check_running "$MARKET_DATA_PY" || true
     echo -n "  Web Dashboard  ($WEB_PY):  "
     check_running "$WEB_PY" || true
     log "=== 状态查看完毕 ==="
@@ -127,14 +135,18 @@ case "$ACTION" in
   restart|"")
     log "=== 重启 ETF Investing ==="
     kill_pids_for "$SERVER_PY"
+    kill_pids_for "$MARKET_DATA_PY"
     kill_pids_for "$WEB_PY"
     sleep 1
     start_server "server" "$SERVER_PY" "$SERVER_LOG"
+    sleep 1
+    start_server "market_data" "$MARKET_DATA_PY" "$MARKET_DATA_LOG"
     sleep 1
     start_server "web" "$WEB_PY" "$WEB_LOG"
     sleep 2
     log "=== 重启完成 ==="
     log "实时行情服务: http://localhost:5678  (健康检查: http://localhost:5678/health)"
+    log "本地行情库服务: http://localhost:5680  (健康检查: http://localhost:5680/health)"
     log "Web Dashboard: http://localhost:8080"
     ;;
 
