@@ -1,0 +1,11 @@
+{
+  "futu": {
+    "host": "127.0.0.1",
+    "port": 11111
+  },
+  "notifications": {
+    "feishu_webhook_url": "",
+    "watch_reminder_enabled": true,
+    "watch_reminder_minute": 885
+  }
+}
