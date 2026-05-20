@@ -1,0 +1,7 @@
+flask
+flask-cors
+mootdx
+requests
+pandas
+numpy
+futu-api

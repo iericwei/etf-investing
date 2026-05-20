@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from datetime import date, datetime
+from typing import Any
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -21,10 +22,18 @@ from .data import fetch_all_history, fetch_etf_15m_history, fetch_history, fetch
 from .strategy import (
     backtest_model,
     compute_indicators,
+    compute_sell_signals,
     compute_trade_signal,
     get_backtest_scheme_config,
     get_selection_model,
     select_top,
+)
+from .notifications import (
+    SIGNAL_STATE_FILE,
+    load_json_state,
+    maybe_send_watch_reminder,
+    save_json_state,
+    send_feishu_text,
 )
 
 WEB_DIR = BASE_DIR / "web"
@@ -176,6 +185,76 @@ def _load_holdings() -> list:
 
 def _save_holdings(codes: list):
     _save_json_list(_HOLDINGS_FILE, codes)
+
+
+def _load_signal_state() -> dict:
+    return load_json_state(SIGNAL_STATE_FILE)
+
+
+def _save_signal_state(state: dict) -> None:
+    save_json_state(SIGNAL_STATE_FILE, state)
+
+
+def _trade_signal_label(signal: dict | None) -> str:
+    if not isinstance(signal, dict):
+        return "观望"
+    return str(signal.get("label") or {"buy": "买入/持有", "sell": "卖出", "hold": "观望"}.get(signal.get("action"), "观望"))
+
+
+def _sell_signal_label(sell: dict | None) -> str:
+    if not isinstance(sell, dict):
+        return "暂无数据"
+    return str(sell.get("urgency") or "暂无数据")
+
+
+def _normalize_signal_label(label: Any) -> str | None:
+    if label is None:
+        return None
+    text = str(label).strip()
+    if not text:
+        return text
+    # Older saved state included detailed reasons like “高风险（跌破均线）”.
+    # For reminder decisions only compare the visible signal text, not reason details.
+    return text.split("（", 1)[0].strip()
+
+
+def _annotate_holding_signal_changes(rows: list[dict], previous_state: dict | None = None) -> tuple[list[dict], dict, list[dict]]:
+    previous_state = previous_state or {}
+    next_state: dict = {}
+    changed_rows: list[dict] = []
+    for row in rows:
+        code = str(row.get("code") or "")
+        trade_label = _trade_signal_label(row.get("trade_signal"))
+        sell_label = _sell_signal_label(row.get("sell_signals"))
+        old = previous_state.get(code, {}) if isinstance(previous_state.get(code), dict) else {}
+        changes: list[dict] = []
+        old_trade = _normalize_signal_label(old.get("trade_signal_label"))
+        old_sell = _normalize_signal_label(old.get("sell_signal_label"))
+        if old_trade is not None and old_trade != trade_label:
+            changes.append({"field": "模型信号", "from": old_trade, "to": trade_label})
+        if old_sell is not None and old_sell != sell_label:
+            changes.append({"field": "卖出信号", "from": old_sell, "to": sell_label})
+        row["signal_changes"] = changes
+        next_state[code] = {"trade_signal_label": trade_label, "sell_signal_label": sell_label}
+        if changes:
+            changed_rows.append(row)
+    return rows, next_state, changed_rows
+
+
+def _format_holding_change_message(rows: list[dict]) -> str:
+    lines = ["持仓信号变动"]
+    for row in rows:
+        code = row.get("code")
+        name = row.get("name") or code
+        lines.append(f"{code} {name}")
+        for change in row.get("signal_changes", []):
+            lines.append(f"- {change['field']}有变更")
+    return "\n".join(lines)
+
+
+def _notify_holding_signal_changes(rows: list[dict]) -> None:
+    if rows:
+        send_feishu_text(_format_holding_change_message(rows))
 
 
 def _load_watchlist() -> list:
@@ -559,6 +638,8 @@ def _is_after_close_now() -> bool:
 def _backtest_scheduler_loop():
     while True:
         try:
+            now = datetime.now()
+            maybe_send_watch_reminder(now=now, is_trading_day=_is_china_trading_day(now.date()))
             today = today_str()
             with _lock:
                 already = _backtest_state.get("last_auto_date") == today
@@ -680,7 +761,6 @@ def api_holdings_realtime():
     """
     持仓实时行情 + 卖出信号（每次调用均实时拉取行情，信号基于缓存历史数据计算）
     """
-    from .strategy import compute_sell_signals
 
     holdings = _load_holdings()
     if not holdings:
@@ -749,6 +829,11 @@ def api_holdings_realtime():
             "signal_sort":  cached_row.get("signal_sort"),
             "sell_signals": sell,
         })
+
+    previous_state = _load_signal_state()
+    data, next_state, changed_rows = _annotate_holding_signal_changes(data, previous_state)
+    _save_signal_state(next_state)
+    _notify_holding_signal_changes(changed_rows)
 
     return jsonify({
         "data":      data,

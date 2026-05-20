@@ -342,6 +342,7 @@ tr.holding        { background: rgba(63,185,80,.04) !important; }
 .trade-buy  { background: rgba(63,185,80,.12); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
 .trade-hold { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 .trade-sell { background: rgba(248,81,73,.12); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.signal-change { margin-top: 4px; color: var(--red); font-size: 11px; line-height: 1.35; }
 .trade-wrap .tip-content { min-width: 220px; }
 .trade-wrap:hover .tip-content { display: none; }
 .backtest-wrap { position: relative; cursor: default; display: inline-block; }

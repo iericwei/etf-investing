@@ -119,6 +119,19 @@ class FrontendCustomTabTests(unittest.TestCase):
 
         self.assertIn("local", html)
 
+    def test_holding_signal_change_html_only_says_changed(self):
+        html = self._run_app_js(
+            """
+              signalChangesHtml({signal_changes: [
+                {field: '模型信号', from: '观望', to: '卖出'},
+                {field: '卖出信号', from: '低风险', to: '高风险'},
+              ]});
+            """
+        )
+        self.assertIn("模型信号、卖出信号有变更", html)
+        self.assertNotIn("观望", html)
+        self.assertNotIn("低风险", html)
+
     def test_render_can_preserve_custom_tab_after_lightweight_refresh(self):
         result = self._run_app_js(
             """

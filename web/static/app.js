@@ -162,6 +162,13 @@ function sellBadge(sell) {
     : '';
   return `<div class="sell-wrap"><span class="sell-badge ${cls}">${sell.urgency || '—'}</span>${tip}</div>`;
 }
+function signalChangesHtml(r) {
+  const changes = Array.isArray(r.signal_changes) ? r.signal_changes : [];
+  if (!changes.length) return '';
+  const fields = changes.map(c => c.field).filter(Boolean).join('、') || '信号';
+  const text = `${fields}有变更`;
+  return `<div class="signal-change" title="${esc(text)}">${esc(text)}</div>`;
+}
 function rankCls(n) { return n===1?'r1':n===2?'r2':n===3?'r3':''; }
 function rankCell(r) {
   return r.is_custom ? '<span class="rank custom-rank">自选</span>' : `<span class="rank ${rankCls(r.rank)}">#${r.rank}</span>`;
@@ -400,7 +407,7 @@ async function refreshHoldings() {
                 <td style="text-align:center">
                   ${r.rank ? `<span class="rank-badge">#${r.rank}</span>` : '<span style="color:var(--muted);font-size:11px">未入榜</span>'}
                 </td>
-                <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
+                <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}${signalChangesHtml(r)}</td>
                 <td style="text-align:center">${sellBadge(r.sell_signals)}</td>
                 <td style="text-align:center">
                   <button class="btn-hold active" onclick="toggleHolding('${r.code}')">移除</button>

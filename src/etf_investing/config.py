@@ -16,6 +16,7 @@ from typing import Any, Mapping
 PACKAGE_DIR = Path(__file__).resolve().parent
 BASE_DIR = PACKAGE_DIR.parents[1]
 CONFIG_FILE = BASE_DIR / "config.json"
+LOCAL_CONFIG_FILE = BASE_DIR / "config.local.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "urls": {
@@ -120,9 +121,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "quote_cache_ttl_seconds": 5,
         "debug": False,
     },
-    "futu": {
-        "host": "127.0.0.1",
-        "port": 11111,
+    "notifications": {
+        "feishu_webhook_url": "",
+        "watch_reminder_minute": 14 * 60 + 45,
+        "watch_reminder_enabled": True,
     },
     "time": {
         "date_format": "%Y-%m-%d",
@@ -155,11 +157,13 @@ def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, 
 
 def load_config() -> dict[str, Any]:
     cfg = copy.deepcopy(DEFAULT_CONFIG)
-    if CONFIG_FILE.exists():
-        with CONFIG_FILE.open("r", encoding="utf-8") as f:
+    for path in (CONFIG_FILE, LOCAL_CONFIG_FILE):
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as f:
             user_cfg = json.load(f)
         if not isinstance(user_cfg, dict):
-            raise ValueError(f"{CONFIG_FILE} 顶层必须是 JSON object")
+            raise ValueError(f"{path} 顶层必须是 JSON object")
         _deep_merge(cfg, user_cfg)
     return cfg
 

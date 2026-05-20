@@ -141,6 +141,66 @@ class WebTargetGroupingTests(unittest.TestCase):
         self.assertFalse(holiday["auto_refresh_allowed"])
         self.assertEqual(holiday["reason"], "节假日/非交易日")
 
+    def test_holdings_realtime_marks_signal_changes_and_notifies_feishu(self):
+        cached_signal = {"action": "sell", "label": "卖出"}
+        old_state = {
+            "111111": {
+                "trade_signal_label": "观望",
+                "sell_signal_label": "低风险",
+            }
+        }
+        with web_app._lock:
+            old_cache = dict(web_app._cache)
+            web_app._cache.update(
+                results=[{"code": "111111", "rank": 1, "trade_signal": cached_signal}],
+                etf_map={"111111": pd.DataFrame({"close": [1, 2, 3]})},
+            )
+        try:
+            with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
+                 patch.object(web_app, "_load_watchlist", return_value=[]), \
+                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={"111111": {"code": "111111", "rank": 1, "trade_signal": cached_signal}}), \
+                 patch.object(web_app, "fetch_realtime", return_value={"111111": {"name": "测试ETF", "price": 1.23, "change_pct": 0.5, "amount": 1000}}), \
+                 patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "科技"}}), \
+                 patch.object(web_app, "compute_sell_signals", return_value={"signals": [{"name": "跌破均线", "level": 3}], "urgency": "高风险", "urgency_level": 3}), \
+                 patch.object(web_app, "_load_signal_state", return_value=old_state), \
+                 patch.object(web_app, "_save_signal_state") as save_state, \
+                 patch.object(web_app, "send_feishu_text", return_value=True) as notify:
+                res = web_app.app.test_client().get("/api/holdings/realtime")
+
+            self.assertEqual(res.status_code, 200)
+            row = res.get_json()["data"][0]
+            self.assertEqual(row["signal_changes"][0], {"field": "模型信号", "from": "观望", "to": "卖出"})
+            self.assertEqual(row["signal_changes"][1], {"field": "卖出信号", "from": "低风险", "to": "高风险"})
+            notify.assert_called_once()
+            self.assertIn("模型信号有变更", notify.call_args.args[0])
+            self.assertNotIn("观望 -> 卖出", notify.call_args.args[0])
+            saved = save_state.call_args.args[0]
+            self.assertEqual(saved["111111"]["trade_signal_label"], "卖出")
+            self.assertEqual(saved["111111"]["sell_signal_label"], "高风险")
+        finally:
+            with web_app._lock:
+                web_app._cache.clear()
+                web_app._cache.update(old_cache)
+
+    def test_holding_signal_change_ignores_sell_reason_detail_changes(self):
+        rows = [{
+            "code": "111111",
+            "trade_signal": {"action": "hold", "label": "观望"},
+            "sell_signals": {"urgency": "高风险", "signals": [{"name": "新原因"}]},
+        }]
+        old_state = {
+            "111111": {
+                "trade_signal_label": "观望",
+                "sell_signal_label": "高风险（旧原因）",
+            }
+        }
+
+        annotated, next_state, changed_rows = web_app._annotate_holding_signal_changes(rows, old_state)
+
+        self.assertEqual(annotated[0]["signal_changes"], [])
+        self.assertEqual(changed_rows, [])
+        self.assertEqual(next_state["111111"]["sell_signal_label"], "高风险")
+
 
 if __name__ == "__main__":
     unittest.main()

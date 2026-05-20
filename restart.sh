@@ -15,11 +15,24 @@ SERVER_LOG="$SCRIPT_DIR/logs/server.log"
 MARKET_DATA_LOG="$SCRIPT_DIR/logs/market_data_service.log"
 WEB_LOG="$SCRIPT_DIR/logs/web.log"
 PID_DIR="$SCRIPT_DIR/.pids"
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
 
 mkdir -p "$SCRIPT_DIR/logs" "$PID_DIR"
 
 # ---- 工具函数 ----
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+python_cmd() {
+  if [ -x "$VENV_PY" ]; then
+    echo "$VENV_PY"
+  elif command -v uv >/dev/null 2>&1; then
+    echo "uv run python"
+  elif command -v python3 >/dev/null 2>&1; then
+    command -v python3
+  else
+    echo "python"
+  fi
+}
 
 find_pids() {
   # 查找项目目录下运行的目标进程 PID，排除 grep 和自身
@@ -63,10 +76,13 @@ start_server() {
   local py_file="$2"
   local log_file="$3"
   local pid_file="$PID_DIR/${name}.pid"
+  local py_cmd
+  py_cmd="$(python_cmd)"
 
-  log "启动 $name ..."
+  log "启动 $name ... (Python: $py_cmd)"
   cd "$SCRIPT_DIR"
-  nohup uv run python "$py_file" >> "$log_file" 2>&1 &
+  # shellcheck disable=SC2086 # py_cmd may intentionally contain "uv run python".
+  nohup $py_cmd "$py_file" >> "$log_file" 2>&1 &
   local pid=$!
   echo "$pid" > "$pid_file"
   log "$name 已启动 (PID: $pid, 日志: $log_file)"
