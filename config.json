@@ -2,7 +2,7 @@
   "_comment": "ETF Investing 项目运行配置。说明字段以 _comment 开头，仅用于阅读说明，程序不会使用这些字段。",
   "urls": {
     "_comment": "外部行情/列表数据源 URL 配置。tencent_history 中的 {prefix}/{code}/{days}、tencent_realtime 中的 {codes} 是程序运行时替换的占位符。",
-    "eastmoney_universe": "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f6&fs=b:MK0021,b:MK0022,b:MK0023,b:MK0024&fields=f12,f13,f14,f2,f3,f6",
+    "eastmoney_universe": "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f6&fs=b:MK0021,b:MK0022,b:MK0023,b:MK0024&fields=f12,f13,f14,f2,f3,f6,f20",
     "tencent_history": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayhfq&param={prefix}{code},day,,,{days},qfq",
     "tencent_realtime": "https://qt.gtimg.cn/q={codes}"
   },

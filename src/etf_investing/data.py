@@ -146,6 +146,139 @@ def fetch_all_history(pool: list, days: int | None = None, workers: int | None =
     return result
 
 
+# ── ETF 净值估算/折溢价 ────────────────────────────────────────────────
+
+def _parse_float(value, default: float | None = None) -> float | None:
+    try:
+        if value in (None, "", "-"):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def fetch_fund_nav_estimates(codes: list[str], workers: int | None = None) -> Dict[str, dict]:
+    """批量获取天天基金实时估算净值，用于按场内价格计算折溢价率。"""
+    wanted = []
+    seen = set()
+    for code in codes:
+        code = str(code or "").strip().zfill(6)
+        if re.fullmatch(r"\d{6}", code) and code not in seen:
+            wanted.append(code)
+            seen.add(code)
+    if not wanted:
+        return {}
+
+    workers = workers or min(12, max(1, len(wanted)))
+    headers = request_headers("eastmoney")
+
+    def fetch_one(code: str) -> tuple[str, dict | None]:
+        url = f"http://fundgz.1234567.com.cn/js/{code}.js"
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            r = session.get(url, headers=headers, timeout=CONFIG["network"]["timeouts"].get("eastmoney_universe", 15))
+            if not r.ok:
+                return code, None
+            m = re.search(r"jsonpgz\((.*)\);?", r.text.strip())
+            if not m:
+                return code, None
+            obj = json.loads(m.group(1))
+            nav = _parse_float(obj.get("gsz")) or _parse_float(obj.get("dwjz"))
+            if not nav or nav <= 0:
+                return code, None
+            return code, {
+                "estimate_nav": nav,
+                "nav_date": obj.get("gztime") or obj.get("jzrq"),
+                "nav_change_pct": _parse_float(obj.get("gszzl")),
+            }
+        except Exception as e:
+            logger.debug(f"[fund_nav_estimate] {code}: {e}")
+            return code, None
+
+    out: Dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        fmap = {ex.submit(fetch_one, code): code for code in wanted}
+        for future in as_completed(fmap):
+            code, data = future.result()
+            if data:
+                out[code] = data
+    return out
+
+
+def fetch_fund_quote_metrics(codes: list[str], workers: int | None = None) -> Dict[str, dict]:
+    """按代码补充 ETF 场内行情指标；主要用于自选/缓存缺失时补基金规模。"""
+    wanted = []
+    seen = set()
+    for code in codes:
+        code = str(code or "").strip().zfill(6)
+        if re.fullmatch(r"\d{6}", code) and code not in seen:
+            wanted.append(code)
+            seen.add(code)
+    if not wanted:
+        return {}
+
+    workers = workers or min(12, max(1, len(wanted)))
+    headers = request_headers("eastmoney")
+    fields = "f57,f58,f116,f117,f20,f21"
+
+    def fetch_one(code: str) -> tuple[str, dict | None]:
+        market, _ = detect_market(code)
+        url = (
+            "https://push2.eastmoney.com/api/qt/stock/get"
+            f"?ut=bd1d9ddb04089700cf9c27f6f7426281&invt=2&fltt=2&secid={market}.{code}&fields={fields}"
+        )
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            r = session.get(url, headers=headers, timeout=CONFIG["network"]["timeouts"].get("eastmoney_universe", 15))
+            if r.ok:
+                obj = r.json().get("data") or {}
+                fund_size = _parse_float(obj.get("f116")) or _parse_float(obj.get("f20")) or 0
+                if fund_size > 0:
+                    return code, {
+                        "name": obj.get("f58"),
+                        "fund_size": fund_size,
+                    }
+        except Exception as e:
+            logger.debug(f"[fund_quote_metrics] {code}: {e}")
+
+        # stock/get 偶尔会断连；基金详情页的规模序列可作为备用，单位为亿元。
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            detail_url = f"http://fund.eastmoney.com/pingzhongdata/{code}.js"
+            r = session.get(detail_url, headers=headers, timeout=CONFIG["network"]["timeouts"].get("eastmoney_universe", 15))
+            if not r.ok:
+                return code, None
+            name_match = re.search(r'var fS_name = "([^"]*)";', r.text)
+            scale_match = re.search(r"Data_fluctuationScale\s*=\s*(\{.*?\})\s*;", r.text, re.S)
+            if not scale_match:
+                return code, None
+            scale = json.loads(scale_match.group(1))
+            series = scale.get("series") or []
+            latest = series[-1] if series else {}
+            fund_size_yi = _parse_float(latest.get("y"), 0)
+            if not fund_size_yi or fund_size_yi <= 0:
+                return code, None
+            return code, {
+                "name": name_match.group(1) if name_match else None,
+                "fund_size": fund_size_yi * 1e8,
+            }
+        except Exception as e:
+            logger.debug(f"[fund_detail_metrics] {code}: {e}")
+            return code, None
+
+    out: Dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        fmap = {ex.submit(fetch_one, code): code for code in wanted}
+        for future in as_completed(fmap):
+            code, data = future.result()
+            if data:
+                out[code] = data
+    return out
+
+
 # ── 东方财富历史分时 K（回测成交价）──────────────────────────────────────
 
 _VALID_INTRADAY_PERIODS = {"1", "5", "15", "30", "60"}

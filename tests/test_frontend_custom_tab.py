@@ -132,6 +132,35 @@ class FrontendCustomTabTests(unittest.TestCase):
         self.assertNotIn("观望", html)
         self.assertNotIn("低风险", html)
 
+    def test_quote_link_opens_tencent_security_page_in_new_tab(self):
+        html = self._run_app_js(
+            """
+              quoteLink({code: '159915'}, '创业板ETF', 'quote-link') +
+              quoteLink({code: '510300'}, '510300', 'code quote-link');
+            """
+        )
+
+        self.assertIn('href="https://gu.qq.com/sz159915"', html)
+        self.assertIn('href="https://gu.qq.com/sh510300"', html)
+        self.assertIn('target="_blank"', html)
+        self.assertIn('rel="noopener noreferrer"', html)
+
+    def test_render_rows_links_code_and_name_to_tencent_quotes(self):
+        html = self._run_app_js(
+            """
+              renderRows([{
+                code: '159915', name: '创业板ETF', category: '宽基', rank: 1,
+                price: 1.234, change_pct: 1.2, ret3: 1, ret5: 2, ret10: 3,
+                rsi: 55, vol_ratio: 1.1, score: 88,
+              }]);
+              document.getElementById('tbody').innerHTML;
+            """
+        )
+
+        self.assertIn('href="https://gu.qq.com/sz159915"', html)
+        self.assertIn('>159915</a>', html)
+        self.assertIn('>创业板ETF</a>', html)
+
     def test_render_can_preserve_custom_tab_after_lightweight_refresh(self):
         result = self._run_app_js(
             """

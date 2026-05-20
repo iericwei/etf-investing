@@ -18,7 +18,7 @@ from flask_cors import CORS
 
 from .config import BASE_DIR, CONFIG, app_base_url, now_str, today_str, web_runtime_config
 from .universe import fetch_universe
-from .data import fetch_all_history, fetch_etf_15m_history, fetch_history, fetch_realtime
+from .data import fetch_all_history, fetch_etf_15m_history, fetch_fund_nav_estimates, fetch_fund_quote_metrics, fetch_history, fetch_realtime
 from .strategy import (
     backtest_model,
     compute_indicators,
@@ -300,6 +300,9 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
     except Exception:
         score_map = {}
 
+    nav_map = fetch_fund_nav_estimates(codes)
+    quote_metrics = fetch_fund_quote_metrics(codes)
+
     rows = []
     for offset, code in enumerate(codes):
         if code not in score_map:
@@ -309,6 +312,11 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
         last = enriched[code].iloc[-1]
         m = meta.get(code, {})
         price = rt.get("price") or float(last.get("close", 0))
+        nav_info = nav_map.get(code, {})
+        quote_info = quote_metrics.get(code, {})
+        estimate_nav = float(nav_info.get("estimate_nav") or 0)
+        premium_rate_pct = round((float(price) / estimate_nav - 1) * 100, 2) if estimate_nav > 0 and price else None
+        fund_size = float(m.get("fund_size") or quote_info.get("fund_size") or 0)
         trade_signal = compute_trade_signal(enriched[code], realtime_price=float(price or 0))
         rows.append({
             "rank":            rank_start + offset,
@@ -317,6 +325,10 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
             "category":        m.get("category", "自选"),
             "price":           price,
             "change_pct":      round(rt.get("change_pct", 0), 2),
+            "fund_size":       fund_size,
+            "premium_rate_pct": premium_rate_pct,
+            "estimate_nav":    estimate_nav or None,
+            "nav_date":        nav_info.get("nav_date"),
             "ret3":            round(float(row["ret3"]), 2),
             "ret5":            round(float(row["ret5"]), 2),
             "ret10":           round(float(row["ret10"]), 2),
@@ -824,6 +836,10 @@ def api_holdings_realtime():
             "price":        price,
             "change_pct":   q.get("change_pct", cached_row.get("change_pct", 0)),
             "amount":       q.get("amount", 0),
+            "fund_size":    cached_row.get("fund_size") or m.get("fund_size", 0),
+            "premium_rate_pct": cached_row.get("premium_rate_pct"),
+            "estimate_nav": cached_row.get("estimate_nav"),
+            "nav_date":     cached_row.get("nav_date"),
             "rank":         rank_map.get(code),
             "trade_signal": cached_row.get("trade_signal"),
             "signal_sort":  cached_row.get("signal_sort"),

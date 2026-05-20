@@ -55,7 +55,7 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
     max_count  : 按成交额降序取前 N 只，防止历史数据拉取过慢
     force      : 忽略今日缓存，强制重拉
 
-    返回: [{"code", "name", "category", "market", "price", "change_pct", "amount"}]
+    返回: [{"code", "name", "category", "market", "price", "change_pct", "amount", "fund_size"}]
     """
     min_amount = float(min_amount if min_amount is not None else CONFIG["selection"]["default_min_amount"])
     max_count = int(max_count if max_count is not None else CONFIG["selection"]["default_max_count"])
@@ -66,6 +66,8 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
             cached = json.loads(_CACHE.read_text(encoding="utf-8"))
             if cached.get("date") == today:
                 items = cached["data"]
+                if items and not any("fund_size" in item for item in items[:20]):
+                    raise ValueError("缓存缺少基金规模字段，重新拉取")
                 result = _apply_filter(items, min_amount, max_count)
                 logger.info(
                     f"[universe] 缓存: 全市场 {len(items)} 只 → "
@@ -76,7 +78,9 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
             pass
 
     try:
-        r = requests.get(_URL, headers=_HEADERS, timeout=CONFIG["network"]["timeouts"]["eastmoney_universe"])
+        session = requests.Session()
+        session.trust_env = False
+        r = session.get(_URL, headers=_HEADERS, timeout=CONFIG["network"]["timeouts"]["eastmoney_universe"])
         r.raise_for_status()
         rows = r.json().get("data", {}).get("diff") or []
     except Exception as e:
@@ -97,6 +101,7 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
         price  = float(row.get("f2") or 0)
         chg    = float(row.get("f3") or 0)
         amount = float(row.get("f6") or 0)
+        fund_size = float(row.get("f20") or 0)
 
         if price <= 0 or _excluded(code, name):
             continue
@@ -109,6 +114,7 @@ def fetch_universe(min_amount: float | None = None, max_count: int | None = None
             "price":      price,
             "change_pct": chg,
             "amount":     amount,
+            "fund_size":  fund_size,
         })
 
     try:

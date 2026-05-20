@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "&ut=bd1d9ddb04089700cf9c27f6f7426281"
             "&fltt=2&invt=2&fid=f6"
             "&fs=b:MK0021,b:MK0022,b:MK0023,b:MK0024"
-            "&fields=f12,f13,f14,f2,f3,f6"
+            "&fields=f12,f13,f14,f2,f3,f6,f20"
         ),
         "tencent_history": (
             "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"

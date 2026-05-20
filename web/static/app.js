@@ -40,6 +40,8 @@ const CUSTOM_TAB = '自选';
 
 const SORT_LABELS = {
   change_pct: '今日',
+  fund_size: '规模',
+  premium_rate_pct: '折溢价',
   ret3: '3日',
   ret5: '5日',
   ret10: '10日',
@@ -64,8 +66,34 @@ function num(v, digits = 2) {
   v = Number(v);
   return Number.isFinite(v) ? v.toFixed(digits) : '—';
 }
+function moneyYi(v) {
+  v = Number(v);
+  return Number.isFinite(v) && v > 0 ? (v / 1e8).toFixed(1) + '亿' : '—';
+}
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+}
+function quoteMarketPrefix(code) {
+  const c = String(code == null ? '' : code).trim();
+  return /^[569]/.test(c) ? 'sh' : 'sz';
+}
+function quoteUrl(code) {
+  const c = String(code == null ? '' : code).trim();
+  if (!/^\d{6}$/.test(c)) return 'https://gu.qq.com/';
+  return `https://gu.qq.com/${quoteMarketPrefix(c)}${c}`;
+}
+function quoteLink(row, text, cls = '') {
+  const code = row && row.code;
+  const label = esc(text == null ? code : text);
+  const klass = cls ? ` class="${esc(cls)}"` : '';
+  return `<a${klass} href="${esc(quoteUrl(code))}" target="_blank" rel="noopener noreferrer" title="在腾讯证券打开行情页">${label}</a>`;
+}
+function fundMetaHtml(r) {
+  const premiumTitle = `估算净值：${num(r.estimate_nav, 4)}${r.nav_date ? ' · ' + esc(r.nav_date) : ''}`;
+  return `<div class="fund-meta">
+    <span title="基金规模">规模 ${moneyYi(r.fund_size)}</span>
+    <span class="${pctCls(r.premium_rate_pct)}" title="${premiumTitle}">折溢价 ${pct(r.premium_rate_pct)}</span>
+  </div>`;
 }
 function rsiCls(v) {
   return v > 75 ? 'rsi-hot' : v > 65 ? 'rsi-warm' : v < 35 ? 'rsi-cold' : 'rsi-good';
@@ -388,7 +416,7 @@ async function refreshHoldings() {
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>代码</th><th>名称</th><th>类别</th>
+            <th>代码</th><th>名称 / 规模折溢价</th><th>类别</th>
             <th class="r">实时价</th><th class="r">涨跌幅</th>
             <th class="r">成交额</th><th style="text-align:center">榜单</th>
             <th style="text-align:center">模型信号</th>
@@ -398,8 +426,8 @@ async function refreshHoldings() {
           <tbody>
             ${items.map(r => `
               <tr data-code="${r.code}">
-                <td><span class="code">${r.code}</span></td>
-                <td>${r.name}</td>
+                <td>${quoteLink(r, r.code, 'code quote-link')}</td>
+                <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
                 <td>${catBadge(r.category)}</td>
                 <td class="r">${r.price > 0 ? r.price.toFixed(3) : '—'}</td>
                 <td class="r ${pctCls(r.change_pct)}">${r.price > 0 ? pct(r.change_pct) : '—'}</td>
@@ -602,8 +630,8 @@ function renderRows(list) {
     }
     return `<tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
       <td class="r">${rankCell(r)}</td>
-      <td><span class="code">${r.code}</span></td>
-      <td>${esc(r.name)}</td>
+      <td>${quoteLink(r, r.code, 'code quote-link')}</td>
+      <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
       <td>${catBadge(r.category || '自选')}</td>
       <td class="r">${num(r.price, 3)}</td>
       <td class="r ${pctCls(r.change_pct)}">${pct(r.change_pct)}</td>

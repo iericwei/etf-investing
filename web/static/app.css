@@ -18,6 +18,8 @@ body {
   font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 13px;
   min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 /* ── Header ─────────────────────────────────────────────────────── */
@@ -56,6 +58,7 @@ header {
   font-size: 13px;
   transition: border-color .15s, color .15s;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 .btn:hover  { border-color: var(--blue); color: var(--blue); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -161,6 +164,7 @@ main { padding: 20px 24px; }
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
+  -webkit-overflow-scrolling: touch;
 }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 thead th {
@@ -191,6 +195,18 @@ td { padding: 10px 12px; white-space: nowrap; vertical-align: middle; }
 
 /* code */
 .code { font-family: 'SF Mono','Fira Code','Consolas',monospace; font-size: 12px; font-weight: 600; color: var(--blue); }
+.quote-link { color: var(--blue); text-decoration: none; }
+.quote-link:hover { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.name-cell { min-width: 150px; }
+.fund-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+}
+.fund-meta span { white-space: nowrap; }
 
 /* category badge */
 .cat { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; font-weight: 500; }
@@ -453,4 +469,184 @@ tr.group-header:hover { background: var(--surface); }
 tr.group-header td::before {
   content: '▸ ';
   color: var(--blue);
+}
+
+/* ── Tablet / Mobile ─────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  header {
+    height: auto;
+    min-height: 52px;
+    padding: 10px 16px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .logo { flex: 1 1 auto; }
+  .spacer { display: none; }
+  .update-time { order: 5; width: 100%; font-size: 11px; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(110px, 1fr));
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .stat { padding: 9px 14px; min-width: 110px; }
+  main { padding: 16px; }
+  .list-toolbar, .hp-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .toolbar-hint, .hp-hint { flex: 1 1 100%; margin-left: 0; }
+}
+
+@media (max-width: 700px) {
+  body { font-size: 12px; }
+  header { position: static; }
+  .logo { font-size: 16px; }
+  .date-chip { font-size: 11px; padding: 2px 6px; }
+  .btn { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+  .stat {
+    min-width: 0;
+    padding: 9px 12px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-label { font-size: 10px; }
+  .stat-value { font-size: 18px; }
+
+  .tab-bar { padding: 0 12px; }
+  .tab { padding: 9px 11px; }
+  .tab-select { min-width: 120px; margin-left: 6px; }
+  main { padding: 12px; }
+  #loading { padding: 70px 12px; }
+
+  .list-toolbar { gap: 10px; }
+  .add-watchlist { width: 100%; gap: 6px; }
+  .add-watchlist input { flex: 1 1 auto; width: auto; min-width: 0; min-height: 36px; }
+  .add-watchlist .btn { flex: 0 0 auto; }
+  .toolbar-hint { line-height: 1.45; }
+
+  .table-wrap {
+    overflow-x: visible;
+    border: none;
+    border-radius: 0;
+  }
+  table, thead, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  table { width: 100%; }
+  tbody tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  tbody tr:hover { background: var(--surface); }
+  tbody tr.holding { background: rgba(63,185,80,.07) !important; }
+  td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    white-space: normal;
+    border-bottom: 1px solid rgba(48,54,61,.65);
+    text-align: right;
+  }
+  td:last-child { border-bottom: none; }
+  td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+  }
+  .r, th.r, td.r { text-align: right; }
+  .name-cell {
+    display: block;
+    min-width: 0;
+    text-align: left;
+  }
+  .name-cell::before { display: block; margin-bottom: 4px; }
+  .fund-meta { flex-wrap: wrap; gap: 6px 10px; }
+  .sigs { justify-content: flex-end; min-width: 0; }
+  .row-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .btn-hold, .btn-remove-custom { min-height: 30px; padding: 4px 9px; }
+  .score-cell { justify-content: flex-end; }
+  .tip-content { max-width: min(86vw, 320px); }
+  .floating-tip { max-width: calc(100vw - 24px); }
+
+  /* 主榜单字段标签 */
+  #tbody td:nth-child(1)::before { content: '#'; }
+  #tbody td:nth-child(2)::before { content: '代码'; }
+  #tbody td:nth-child(3)::before { content: '名称'; }
+  #tbody td:nth-child(4)::before { content: '类别'; }
+  #tbody td:nth-child(5)::before { content: '现价'; }
+  #tbody td:nth-child(6)::before { content: '今日'; }
+  #tbody td:nth-child(7)::before { content: '3日'; }
+  #tbody td:nth-child(8)::before { content: '5日'; }
+  #tbody td:nth-child(9)::before { content: '10日'; }
+  #tbody td:nth-child(10)::before { content: 'RSI'; }
+  #tbody td:nth-child(11)::before { content: '量比'; }
+  #tbody td:nth-child(12)::before { content: '信号'; }
+  #tbody td:nth-child(13)::before { content: '模型'; }
+  #tbody td:nth-child(14)::before { content: '回测'; }
+  #tbody td:nth-child(15)::before { content: '评分'; }
+  #tbody td:nth-child(16)::before { content: '操作'; }
+
+  /* 持仓面板字段标签 */
+  #holdings-panel tbody td:nth-child(1)::before { content: '代码'; }
+  #holdings-panel tbody td:nth-child(2)::before { content: '名称'; }
+  #holdings-panel tbody td:nth-child(3)::before { content: '类别'; }
+  #holdings-panel tbody td:nth-child(4)::before { content: '实时价'; }
+  #holdings-panel tbody td:nth-child(5)::before { content: '涨跌幅'; }
+  #holdings-panel tbody td:nth-child(6)::before { content: '成交额'; }
+  #holdings-panel tbody td:nth-child(7)::before { content: '榜单'; }
+  #holdings-panel tbody td:nth-child(8)::before { content: '模型'; }
+  #holdings-panel tbody td:nth-child(9)::before { content: '卖出'; }
+  #holdings-panel tbody td:nth-child(10)::before { content: '操作'; }
+
+  tr.group-header {
+    border: none;
+    margin: 14px 0 6px;
+    background: transparent;
+  }
+  tr.group-header td {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    text-align: left;
+  }
+  tr.group-header td::before { content: '▸ '; display: inline; margin: 0; }
+
+  .hp-header { gap: 8px; }
+  .hp-title { width: 100%; }
+  .hp-ts, .hp-countdown { font-size: 11px; }
+  .hp-empty { padding: 36px 14px; }
+  .legend {
+    margin-top: 10px;
+    padding: 10px 12px;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .legend span { flex: 1 1 100%; }
+}
+
+@media (max-width: 420px) {
+  header { padding: 9px 10px; }
+  header .btn { flex: 1 1 calc(50% - 4px); }
+  .stats { grid-template-columns: 1fr 1fr; }
+  main { padding: 10px; }
+  .add-watchlist { flex-wrap: wrap; }
+  .add-watchlist .btn { width: 100%; }
+  td { gap: 8px; padding: 8px; }
+  .fund-meta { display: grid; grid-template-columns: 1fr; gap: 3px; }
+  .bar-bg { width: 44px; }
 }

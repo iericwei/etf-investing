@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .config import CONFIG
+from .data import fetch_fund_nav_estimates, fetch_fund_quote_metrics
 from .market_data import DEFAULT_INTRADAY_PERIOD, MarketDataStore, fetch_futu_intraday_history, normalize_code
 
 
@@ -335,20 +336,33 @@ def select_top(
 
     # 组装输出
     pool_meta = {item["code"]: item for item in pool}
+    output_codes = [str(row["code"]) for _, row in df_score.iterrows()]
+    nav_map = fetch_fund_nav_estimates(output_codes)
+    quote_metrics = fetch_fund_quote_metrics(output_codes)
     results = []
     for rank, (_, row) in enumerate(df_score.iterrows(), start=1):
         code = row["code"]
         meta = pool_meta.get(code, {})
         rt = realtime.get(code, {})
         last = enriched[code].iloc[-1]
+        price = rt.get("price") or float(last.get("close", 0))
+        nav_info = nav_map.get(code, {})
+        quote_info = quote_metrics.get(code, {})
+        estimate_nav = _safe_float(nav_info.get("estimate_nav"), 0)
+        premium_rate_pct = round((float(price) / estimate_nav - 1) * 100, 2) if estimate_nav > 0 and price else None
+        fund_size = _safe_float(meta.get("fund_size"), 0) or _safe_float(quote_info.get("fund_size"), 0)
 
         results.append({
             "rank":            rank,
             "code":            code,
             "name":            rt.get("name") or meta.get("name", code),
             "category":        meta.get("category", ""),
-            "price":           rt.get("price") or float(last.get("close", 0)),
+            "price":           price,
             "change_pct":      round(rt.get("change_pct", 0), 2),
+            "fund_size":       fund_size,
+            "premium_rate_pct": premium_rate_pct,
+            "estimate_nav":    estimate_nav or None,
+            "nav_date":        nav_info.get("nav_date"),
             "ret3":            round(row["ret3"], 2),
             "ret5":            round(row["ret5"], 2),
             "ret10":           round(row["ret10"], 2),
