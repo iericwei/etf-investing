@@ -8,13 +8,22 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">ETF <em>选股</em>日报</div>
-  <div class="date-chip" id="dateChip">—</div>
-  <div class="spacer"></div>
-  <div class="update-time" id="updateTime"></div>
-  <button class="btn" id="btnBacktest" onclick="runBacktest()">▶ 手动回测</button>
-  <button class="btn" id="btnRefresh" onclick="doRefresh()">↺ 刷新</button>
+<header class="app-header">
+  <div class="header-left">
+    <div class="logo">ETF <em>选股</em>日报</div>
+    <div class="header-chips">
+      <span class="status-chip date-chip" id="dateChip">—</span>
+      <span class="status-chip status-live" id="sStatus">初始化…</span>
+    </div>
+  </div>
+  <div class="header-center">
+    <span class="status-chip update-time" id="updateTime">等待更新</span>
+    <span class="status-chip backtest-chip" id="backtestStatus">回测：收盘前15分钟方案</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn" id="btnBacktest" onclick="runBacktest()">▶ 手动回测</button>
+    <button class="btn btn-primary" id="btnRefresh" onclick="doRefresh()">↺ 刷新</button>
+  </div>
 </header>
 
 <div class="stats">
@@ -22,10 +31,8 @@
   <div class="stat"><div class="stat-label">流动性筛选</div><div class="stat-value" id="sScanned">—</div></div>
   <div class="stat"><div class="stat-label">本日优选</div><div class="stat-value" id="sSelected">—</div></div>
   <div class="stat"><div class="stat-label">最高评分</div><div class="stat-value" id="sTop">—</div></div>
-  <div class="stat"><div class="stat-label">数据状态</div><div class="stat-value" id="sStatus" style="font-size:14px">初始化…</div></div>
+  <div class="stat"><div class="stat-label">数据状态</div><div class="stat-value stat-status" id="sStatusMirror">初始化…</div></div>
 </div>
-
-<div class="tab-bar" id="tabBar"><div class="tab-inner" id="tabInner"></div></div>
 
 <main>
   <div id="loading">
@@ -37,32 +44,50 @@
 
   <div id="table-section">
     <div class="list-toolbar">
-      <div class="add-watchlist">
+      <div class="tab-bar" id="tabBar"><div class="tab-inner" id="tabInner"></div></div>
+      <div class="add-watchlist" aria-label="自选榜单">
         <input id="watchCode" maxlength="6" inputmode="numeric" placeholder="添加代码，如 513130" onkeydown="if(event.key==='Enter') addWatchlist()">
-        <button class="btn" onclick="addWatchlist()">+ 添加到榜单</button>
+        <button class="btn btn-quiet" onclick="addWatchlist()">+ 添加到榜单</button>
       </div>
-      <div class="toolbar-hint" id="backtestStatus">回测：收盘前15分钟方案，收盘后自动执行，也可手动运行</div>
     </div>
     <div class="table-wrap">
       <table>
+        <colgroup>
+          <col class="col-rank">
+          <col class="col-code">
+          <col class="col-name">
+          <col class="col-cat">
+          <col class="col-price">
+          <col class="col-momentum">
+          <col class="col-momentum">
+          <col class="col-momentum">
+          <col class="col-momentum">
+          <col class="col-tech">
+          <col class="col-tech">
+          <col class="col-signal">
+          <col class="col-decision">
+          <col class="col-backtest">
+          <col class="col-score">
+          <col class="col-actions">
+        </colgroup>
         <thead>
           <tr>
-            <th class="r">#</th>
+            <th class="r rank-col">#</th>
             <th>代码</th>
             <th>名称 / 规模折溢价</th>
             <th>类别</th>
             <th class="r">现价</th>
-            <th class="r sortable" data-sort="change_pct" onclick="sortBy('change_pct')">今日<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="ret3" onclick="sortBy('ret3')">3日<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="ret5" onclick="sortBy('ret5')">5日<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="ret10" onclick="sortBy('ret10')">10日<span class="sort-icon">↕</span></th>
+            <th class="r sortable momentum-col" data-sort="change_pct" onclick="sortBy('change_pct')">今日<span class="sort-icon">↕</span></th>
+            <th class="r sortable momentum-col" data-sort="ret3" onclick="sortBy('ret3')">3日<span class="sort-icon">↕</span></th>
+            <th class="r sortable momentum-col" data-sort="ret5" onclick="sortBy('ret5')">5日<span class="sort-icon">↕</span></th>
+            <th class="r sortable momentum-col" data-sort="ret10" onclick="sortBy('ret10')">10日<span class="sort-icon">↕</span></th>
             <th class="r sortable" data-sort="rsi" onclick="sortBy('rsi')">RSI<span class="sort-icon">↕</span></th>
             <th class="r sortable" data-sort="vol_ratio" onclick="sortBy('vol_ratio')">量比<span class="sort-icon">↕</span></th>
-            <th>信号</th>
-            <th style="text-align:center" class="sortable" data-sort="signal_sort" onclick="sortBy('signal_sort')">模型信号<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')" title="收盘前15分钟方案">回测1月<span class="sort-icon">↕</span></th>
-            <th class="r sortable" data-sort="score" onclick="sortBy('score')">评分<span class="sort-icon">↕</span></th>
-            <th style="text-align:center">操作</th>
+            <th class="decision-col">信号</th>
+            <th style="text-align:center" class="sortable decision-col" data-sort="signal_sort" onclick="sortBy('signal_sort')">模型信号<span class="sort-icon">↕</span></th>
+            <th class="r sortable decision-col" data-sort="backtest_return_pct" onclick="sortBy('backtest_return_pct')" title="收盘前15分钟方案">回测1月<span class="sort-icon">↕</span></th>
+            <th class="r sortable decision-col score-priority" data-sort="score" onclick="sortBy('score')">评分<span class="sort-icon">↕</span></th>
+            <th style="text-align:center" class="decision-col">操作</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>

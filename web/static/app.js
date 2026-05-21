@@ -111,6 +111,25 @@ function signals(r) {
   if (r.rsi < 45)        s += '<span class="sig s-rsi">超卖回弹</span>';
   return `<div class="sigs">${s || '<span style="color:#8b949e;font-size:11px">—</span>'}</div>`;
 }
+function setTone(el, tone) {
+  if (!el) return;
+  if (el.classList?.remove) {
+    el.classList.remove('status-ok', 'status-warn', 'status-error');
+  }
+  if (tone && el.classList?.add) el.classList.add(`status-${tone}`);
+}
+function setDataStatus(text, tone) {
+  const main = document.getElementById('sStatus');
+  const mirror = document.getElementById('sStatusMirror');
+  if (main) {
+    main.textContent = text;
+    setTone(main, tone);
+  }
+  if (mirror) {
+    mirror.textContent = text;
+    setTone(mirror, tone);
+  }
+}
 function tradeSignalBadge(sig) {
   if (!sig || !sig.action) return '<span class="trade-badge trade-hold">观望</span>';
   const cls = sig.action === 'buy' ? 'trade-buy' : sig.action === 'sell' ? 'trade-sell' : 'trade-hold';
@@ -121,7 +140,7 @@ function tradeSignalBadge(sig) {
     `<div class="sig-item"><span>${s.name}</span><span class="sig-lv-${s.level}">${s.level}</span></div>`
   ).join('');
   const tip = (buyRows || sellRows)
-    ? `<div class="tip-content">${buyRows}${sellRows ? '<div class="tip-sep">卖出风险</div>' + sellRows : ''}</div>`
+    ? `<div class="tip-content signal-tip"><div class="tip-title">模型信号明细</div>${buyRows}${sellRows ? '<div class="tip-sep">卖出风险</div>' + sellRows : ''}</div>`
     : '';
   return `<div class="trade-wrap"><span class="trade-badge ${cls}">${sig.label || sig.action}</span>${tip}</div>`;
 }
@@ -187,7 +206,7 @@ function sellBadge(sell) {
     `<div class="sig-item"><span>${s.name}</span><span class="sig-lv-${s.level}">${s.level}</span></div>`
   ).join('');
   const tip = sigs.length
-    ? `<div class="tip-content">${tipRows}</div>`
+    ? `<div class="tip-content signal-tip"><div class="tip-title">卖出风险明细</div>${tipRows}</div>`
     : '';
   return `<div class="sell-wrap"><span class="sell-badge ${cls}">${sell.urgency || '—'}</span>${tip}</div>`;
 }
@@ -248,13 +267,13 @@ function showSellTip(wrap) {
 }
 
 document.addEventListener('mouseover', e => {
-  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap');
+  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap, .score-tip');
   if (!wrap || !wrap.contains(e.target)) return;
   showSellTip(wrap);
 });
 
 document.addEventListener('mouseout', e => {
-  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap');
+  const wrap = e.target.closest('.sell-wrap, .trade-wrap, .backtest-wrap, .score-tip');
   if (!wrap) return;
   if (e.relatedTarget && wrap.contains(e.relatedTarget)) return;
   hideSellTip();
@@ -496,6 +515,7 @@ function scoreCell(r) {
       <div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div>
       <div class="score-val">${score.toFixed(1)}</div>
       <div class="tip-content factor-tip">
+        <div class="tip-title">评分因子拆解</div>
         <div class="tip-row"><span class="tip-label factor-help">动量 (35%)<small>3日/5日涨跌幅，衡量短期价格强弱</small></span><span class="tip-val">${Number.isFinite(momentum) ? momentum.toFixed(1) : '—'}</span></div>
         <div class="tip-row"><span class="tip-label factor-help">量能 (25%)<small>量比 × 短期涨幅，衡量放量上涨协同</small></span><span class="tip-val">${Number.isFinite(volume) ? volume.toFixed(1) : '—'}</span></div>
         <div class="tip-row"><span class="tip-label factor-help">技术 (25%)<small>RSI 健康度、MACD、均线结构综合评分</small></span><span class="tip-val">${Number.isFinite(technical) ? technical.toFixed(1) : '—'}</span></div>
@@ -635,17 +655,17 @@ function renderRows(list) {
       <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
       <td>${catBadge(r.category || '自选')}</td>
       <td class="r">${num(r.price, 3)}</td>
-      <td class="r ${pctCls(r.change_pct)}">${pct(r.change_pct)}</td>
-      <td class="r ${pctCls(r.ret3)}">${pct(r.ret3)}</td>
-      <td class="r ${pctCls(r.ret5)}">${pct(r.ret5)}</td>
-      <td class="r ${pctCls(r.ret10)}">${pct(r.ret10)}</td>
+      <td class="r momentum-col ${pctCls(r.change_pct)}">${pct(r.change_pct)}</td>
+      <td class="r momentum-col ${pctCls(r.ret3)}">${pct(r.ret3)}</td>
+      <td class="r momentum-col ${pctCls(r.ret5)}">${pct(r.ret5)}</td>
+      <td class="r momentum-col ${pctCls(r.ret10)}">${pct(r.ret10)}</td>
       <td class="r ${rsiCls(Number(r.rsi) || 0)}">${num(r.rsi, 1)}</td>
       <td class="r">${num(r.vol_ratio, 2)}</td>
-      <td>${signals(r)}</td>
-      <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
-      <td class="r">${backtestCell(r)}</td>
-      <td class="r">${scoreCell(r)}</td>
-      <td style="text-align:center">${actionBtns(r)}</td>
+      <td class="decision-col">${signals(r)}</td>
+      <td class="decision-col" style="text-align:center">${tradeSignalBadge(r.trade_signal)}</td>
+      <td class="r decision-col">${backtestCell(r)}</td>
+      <td class="r decision-col score-priority">${scoreCell(r)}</td>
+      <td class="decision-col" style="text-align:center">${actionBtns(r)}</td>
     </tr>`;
   }).join('');
   updateSortHeaders();
@@ -683,16 +703,16 @@ function updateBacktestStatus(backtest) {
   if (btn) btn.disabled = st.status === 'running';
   if (st.status === 'running') {
     el.textContent = '回测：运行中…';
-    el.style.color = '#e3b341';
+    setTone(el, 'warn');
   } else if (st.status === 'ready') {
     el.textContent = `回测：${scheme}方案已更新 ` + (st.timestamp || '');
-    el.style.color = '#3fb950';
+    setTone(el, 'ok');
   } else if (st.status === 'error') {
     el.textContent = '回测：' + (st.error || '失败');
-    el.style.color = '#f85149';
+    setTone(el, 'error');
   } else {
     el.textContent = `回测：${scheme}方案，收盘后自动执行，也可手动运行`;
-    el.style.color = '';
+    setTone(el, '');
   }
 }
 
@@ -709,8 +729,7 @@ function render(data, preserveActiveCat = false) {
   document.getElementById('sScanned').textContent  = data.scanned ? data.scanned + '只' : '—';
   document.getElementById('sSelected').textContent = rows.length;
   document.getElementById('sTop').textContent      = Number.isFinite(topScore) ? topScore.toFixed(1) : '—';
-  const sStatus = document.getElementById('sStatus');
-  sStatus.textContent = '实时'; sStatus.style.color = '#3fb950';
+  setDataStatus('实时', 'ok');
   if (data.timestamp) document.getElementById('updateTime').textContent = '更新于 ' + data.timestamp;
   if (data.date)      document.getElementById('dateChip').textContent   = data.date;
   updateBacktestStatus(data.backtest);
@@ -743,8 +762,7 @@ function showError(msg) {
   const eb = document.getElementById('error-box');
   eb.style.display = 'block';
   eb.textContent = '获取失败：' + msg;
-  const s = document.getElementById('sStatus');
-  s.textContent = '错误'; s.style.color = '#f85149';
+  setDataStatus('错误', 'error');
   document.getElementById('btnRefresh').disabled = false;
 }
 
@@ -780,8 +798,7 @@ function startPolling() {
   document.getElementById('loading').style.display       = 'flex';
   document.getElementById('table-section').style.display = 'none';
   document.getElementById('error-box').style.display     = 'none';
-  const s = document.getElementById('sStatus');
-  s.textContent = '加载中…'; s.style.color = '#e3b341';
+  setDataStatus('加载中…', 'warn');
   _pollCount = 0;
   clearInterval(_timer);
   poll();
