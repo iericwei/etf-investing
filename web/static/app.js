@@ -130,6 +130,47 @@ function setDataStatus(text, tone) {
     setTone(mirror, tone);
   }
 }
+function indexPrice(v) {
+  v = Number(v);
+  if (!Number.isFinite(v)) return '—';
+  return v.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function marketIndexCard(item) {
+  const change = Number(item && item.change_pct);
+  const cls = Number.isFinite(change) ? pctCls(change) : 'neu';
+  const name = item?.short_name || item?.name || '指数';
+  const code = item?.code || '—';
+  return `
+    <div class="index-card" data-index-code="${esc(code)}">
+      <div class="index-head">
+        <span class="index-name">${esc(name)}</span>
+        <span class="index-code">${esc(code)}</span>
+      </div>
+      <div class="index-body">
+        <span class="index-price">${indexPrice(item?.price)}</span>
+        <span class="index-change ${cls}">${Number.isFinite(change) ? pct(change) : '—'}</span>
+      </div>
+    </div>`;
+}
+function renderMarketIndices(payload) {
+  const el = document.getElementById('marketIndices');
+  if (!el) return;
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  if (!items.length) {
+    el.innerHTML = '<div class="index-empty">指数暂不可用</div>';
+    return;
+  }
+  el.innerHTML = items.map(marketIndexCard).join('');
+}
+async function refreshMarketIndices() {
+  try {
+    const res = await fetch('/api/market/indices');
+    if (!res.ok) throw new Error('market indices unavailable');
+    renderMarketIndices(await res.json());
+  } catch (_) {
+    renderMarketIndices({data: []});
+  }
+}
 function tradeSignalBadge(sig) {
   if (!sig || !sig.action) return '<span class="trade-badge trade-hold">观望</span>';
   const cls = sig.action === 'buy' ? 'trade-buy' : sig.action === 'sell' ? 'trade-sell' : 'trade-hold';
@@ -238,6 +279,23 @@ function hideSellTip() {
   _activeSellWrap = null;
 }
 
+function stickyTableTopPx() {
+  if (typeof getComputedStyle !== 'function' || !document.documentElement) return 0;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--sticky-table-top');
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function updateStickyTables() {
+  const top = stickyTableTopPx();
+  document.querySelectorAll('.table-wrap').forEach(wrap => {
+    if (!wrap.getBoundingClientRect) return;
+    const rect = wrap.getBoundingClientRect();
+    const active = top > 0 && rect.top <= top && rect.bottom > top + 44;
+    wrap.classList.toggle('table-sticky-active', active);
+  });
+}
+
 function showSellTip(wrap) {
   const src = wrap.querySelector('.tip-content');
   if (!src) return;
@@ -279,8 +337,14 @@ document.addEventListener('mouseout', e => {
   hideSellTip();
 });
 
-window.addEventListener('scroll', hideSellTip, true);
-window.addEventListener('resize', hideSellTip);
+window.addEventListener('scroll', () => {
+  hideSellTip();
+  updateStickyTables();
+}, true);
+window.addEventListener('resize', () => {
+  hideSellTip();
+  updateStickyTables();
+});
 
 /* ── 持仓管理 ────────────────────────────────────────────────────── */
 async function loadHoldings() {
@@ -425,18 +489,20 @@ async function refreshHoldings() {
     hideSellTip();
     const d = await (await fetch('/api/holdings/realtime')).json();
     await reloadSelectOnce(true);
+    refreshMarketIndices();
     if (d.timestamp) document.getElementById('hpTs').textContent = '更新于 ' + d.timestamp;
     const items = d.data || [];
     const body = document.getElementById('hpBody');
     if (!items.length) {
       body.innerHTML = '<div class="hp-empty">暂无持仓标的，在列表中点击「+ 持仓」添加</div>';
+      updateStickyTables();
       return;
     }
     body.innerHTML = `
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>代码</th><th>名称 / 规模折溢价</th><th>类别</th>
+            <th>代码</th><th>名称</th><th>类别</th>
             <th class="r">实时价</th><th class="r">涨跌幅</th>
             <th class="r">成交额</th><th style="text-align:center">榜单</th>
             <th style="text-align:center">模型信号</th>
@@ -464,6 +530,7 @@ async function refreshHoldings() {
           </tbody>
         </table>
       </div>`;
+    updateStickyTables();
   } catch(e) { console.error(e); }
 }
 
@@ -637,6 +704,7 @@ function selectTab(cat) {
     const filtered = currentList();
     renderRows(filtered);
   }
+  updateStickyTables();
 }
 
 function renderRows(list) {
@@ -669,6 +737,7 @@ function renderRows(list) {
     </tr>`;
   }).join('');
   updateSortHeaders();
+  updateStickyTables();
 }
 
 function insertGroupHeaders(list) {
@@ -729,10 +798,10 @@ function render(data, preserveActiveCat = false) {
   document.getElementById('sScanned').textContent  = data.scanned ? data.scanned + '只' : '—';
   document.getElementById('sSelected').textContent = rows.length;
   document.getElementById('sTop').textContent      = Number.isFinite(topScore) ? topScore.toFixed(1) : '—';
-  setDataStatus('实时', 'ok');
-  if (data.timestamp) document.getElementById('updateTime').textContent = '更新于 ' + data.timestamp;
+  setDataStatus(data.timestamp ? '实时：更新于 ' + data.timestamp : '实时', 'ok');
   if (data.date)      document.getElementById('dateChip').textContent   = data.date;
   updateBacktestStatus(data.backtest);
+  refreshMarketIndices();
 
   _activeCat = preserveActiveCat && previousCat ? previousCat : '全部';
   buildTabs(_allResults);
@@ -753,6 +822,7 @@ function render(data, preserveActiveCat = false) {
   document.getElementById('error-box').style.display     = 'none';
   document.getElementById('table-section').style.display = 'block';
   document.getElementById('btnRefresh').disabled = false;
+  updateStickyTables();
 }
 
 function showError(msg) {
@@ -843,6 +913,7 @@ function startAutoRefresh() {
 async function bootstrap() {
   await loadRuntimeConfig();
   startAutoRefresh();
+  refreshMarketIndices();
   await loadHoldings();
   await loadWatchlist();
   startPolling();

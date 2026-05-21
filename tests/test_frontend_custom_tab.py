@@ -132,6 +132,26 @@ class FrontendCustomTabTests(unittest.TestCase):
         self.assertNotIn("观望", html)
         self.assertNotIn("低风险", html)
 
+    def test_market_indices_render_positive_negative_and_empty_states(self):
+        html = self._run_app_js(
+            """
+              renderMarketIndices({data: [
+                {code: '000001', short_name: '上证', price: 3120.42, change_pct: 0.38},
+                {code: '399006', short_name: '创业板', price: 1910.10, change_pct: -0.21},
+              ]});
+              const filled = document.getElementById('marketIndices').innerHTML;
+              renderMarketIndices({data: []});
+              filled + '|' + document.getElementById('marketIndices').innerHTML;
+            """
+        )
+
+        self.assertIn("上证", html)
+        self.assertIn("3,120.42", html)
+        self.assertIn("pos", html)
+        self.assertIn("创业板", html)
+        self.assertIn("neg", html)
+        self.assertIn("指数暂不可用", html)
+
     def test_quote_link_opens_tencent_security_page_in_new_tab(self):
         html = self._run_app_js(
             """

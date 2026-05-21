@@ -13,10 +13,11 @@ import threading
 import time
 from datetime import date, datetime
 from typing import Any
+import requests
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-from .config import BASE_DIR, CONFIG, app_base_url, now_str, today_str, web_runtime_config
+from .config import BASE_DIR, CONFIG, app_base_url, now_str, request_headers, tencent_realtime_url, today_str, web_runtime_config
 from .universe import fetch_universe
 from .data import fetch_all_history, fetch_etf_15m_history, fetch_fund_nav_estimates, fetch_fund_quote_metrics, fetch_history, fetch_realtime
 from .strategy import (
@@ -71,6 +72,23 @@ _HOLDINGS_FILE = BASE_DIR / "holdings.json"
 _WATCHLIST_FILE = BASE_DIR / "watchlist.json"
 
 _CODE_RE = re.compile(r"^\d{6}$")
+_TENCENT_QUOTE_RE = re.compile(r'^v_\w+="([^"]+)"')
+
+_MARKET_INDICES = [
+    {"code": "000001", "symbol": "sh000001", "name": "上证指数", "short_name": "上证"},
+    {"code": "399001", "symbol": "sz399001", "name": "深证成指", "short_name": "深成"},
+    {"code": "399006", "symbol": "sz399006", "name": "创业板指", "short_name": "创业板"},
+    {"code": "000688", "symbol": "sh000688", "name": "科创板指数", "short_name": "科创板"},
+]
+
+
+def _safe_float(value: Any, default: float | None = None) -> float | None:
+    try:
+        if value in (None, "", "-"):
+            return default
+        return float(value)
+    except Exception:
+        return default
 
 
 def _active_backtest_meta() -> dict:
@@ -161,6 +179,84 @@ def _normalize_code(code: str) -> str:
 
 def _valid_code(code: str) -> bool:
     return bool(_CODE_RE.match(code or ""))
+
+
+def _parse_market_index_fields(fields: list[str], meta: dict[str, str]) -> dict[str, Any]:
+    price = _safe_float(fields[3] if len(fields) > 3 else None, 0) or 0
+    prev = _safe_float(fields[4] if len(fields) > 4 else None, 0) or 0
+    change_pct = _safe_float(fields[32] if len(fields) > 32 else None)
+    if change_pct is None and prev > 0:
+        change_pct = (price - prev) / prev * 100
+    change_amt = _safe_float(fields[31] if len(fields) > 31 else None)
+    if change_amt is None:
+        change_amt = price - prev
+    return {
+        "code": meta["code"],
+        "symbol": meta["symbol"],
+        "name": meta["name"],
+        "short_name": meta["short_name"],
+        "price": price,
+        "prev_close": prev,
+        "change": change_amt,
+        "change_pct": change_pct or 0,
+        "source": "tencent",
+    }
+
+
+def fetch_market_indices() -> dict[str, Any]:
+    meta_by_symbol = {item["symbol"]: item for item in _MARKET_INDICES}
+    try:
+        url = tencent_realtime_url([item["symbol"] for item in _MARKET_INDICES])
+        res = requests.get(
+            url,
+            headers=request_headers("tencent"),
+            timeout=CONFIG["network"]["timeouts"]["tencent_realtime"],
+        )
+        res.encoding = "gbk"
+        parsed: dict[str, dict[str, Any]] = {}
+        for line in res.text.strip().split("\n"):
+            m = _TENCENT_QUOTE_RE.match(line.strip().rstrip(";"))
+            if not m:
+                continue
+            fields = m.group(1).split("~")
+            if len(fields) < 5:
+                continue
+            code = fields[2] if len(fields) > 2 else ""
+            symbol = ("sh" if line.startswith("v_sh") else "sz") + code
+            meta = meta_by_symbol.get(symbol)
+            if meta:
+                parsed[symbol] = _parse_market_index_fields(fields, meta)
+        indices = [parsed.get(item["symbol"]) or {
+            "code": item["code"],
+            "symbol": item["symbol"],
+            "name": item["name"],
+            "short_name": item["short_name"],
+            "price": None,
+            "prev_close": None,
+            "change": None,
+            "change_pct": None,
+            "source": "tencent",
+            "error": "no_data",
+        } for item in _MARKET_INDICES]
+        return {"ok": True, "data": indices, "timestamp": now_str("timestamp_format")}
+    except Exception as e:
+        return {
+            "ok": False,
+            "data": [{
+                "code": item["code"],
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "short_name": item["short_name"],
+                "price": None,
+                "prev_close": None,
+                "change": None,
+                "change_pct": None,
+                "source": "tencent",
+                "error": str(e),
+            } for item in _MARKET_INDICES],
+            "timestamp": now_str("timestamp_format"),
+            "error": str(e),
+        }
 
 
 def _load_json_list(path) -> list:
@@ -869,6 +965,11 @@ def api_config():
 @app.route("/api/market/status")
 def api_market_status():
     return jsonify(_market_status())
+
+
+@app.route("/api/market/indices")
+def api_market_indices():
+    return jsonify(fetch_market_indices())
 
 
 @app.route("/health")

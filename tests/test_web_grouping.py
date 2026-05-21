@@ -141,6 +141,36 @@ class WebTargetGroupingTests(unittest.TestCase):
         self.assertFalse(holiday["auto_refresh_allowed"])
         self.assertEqual(holiday["reason"], "节假日/非交易日")
 
+    def test_market_indices_endpoint_returns_fixed_four_indices(self):
+        def quote_line(prefix, code, name, price, prev, change, change_pct):
+            fields = [""] * 40
+            fields[1] = name
+            fields[2] = code
+            fields[3] = str(price)
+            fields[4] = str(prev)
+            fields[31] = str(change)
+            fields[32] = str(change_pct)
+            return f'v_{prefix}{code}="' + "~".join(fields) + '";'
+
+        class Response:
+            encoding = "gbk"
+            text = "\n".join([
+                quote_line("sh", "000001", "上证指数", 3120.42, 3108.60, 11.82, 0.38),
+                quote_line("sz", "399001", "深证成指", 9820.30, 9769.50, 50.80, 0.52),
+                quote_line("sz", "399006", "创业板指", 1910.10, 1914.12, -4.02, -0.21),
+                quote_line("sh", "000688", "科创板指数", 980.50, 976.21, 4.29, 0.44),
+            ])
+
+        with patch.object(web_app.requests, "get", return_value=Response()):
+            res = web_app.app.test_client().get("/api/market/indices")
+
+        self.assertEqual(res.status_code, 200)
+        payload = res.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual([row["code"] for row in payload["data"]], ["000001", "399001", "399006", "000688"])
+        self.assertEqual(payload["data"][0]["short_name"], "上证")
+        self.assertEqual(payload["data"][2]["change_pct"], -0.21)
+
     def test_holdings_realtime_marks_signal_changes_and_notifies_feishu(self):
         cached_signal = {"action": "sell", "label": "卖出"}
         old_state = {

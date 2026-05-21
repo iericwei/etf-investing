@@ -17,21 +17,24 @@
     </div>
   </div>
   <div class="header-center">
-    <span class="status-chip update-time" id="updateTime">等待更新</span>
-    <span class="status-chip backtest-chip" id="backtestStatus">回测：收盘前15分钟方案</span>
   </div>
   <div class="header-actions">
+    <span class="status-chip backtest-chip" id="backtestStatus">回测：收盘前15分钟方案</span>
     <button class="btn" id="btnBacktest" onclick="runBacktest()">▶ 手动回测</button>
     <button class="btn btn-primary" id="btnRefresh" onclick="doRefresh()">↺ 刷新</button>
   </div>
 </header>
 
-<div class="stats">
-  <div class="stat"><div class="stat-label">全市场ETF</div><div class="stat-value" id="sTotal">—</div></div>
-  <div class="stat"><div class="stat-label">流动性筛选</div><div class="stat-value" id="sScanned">—</div></div>
-  <div class="stat"><div class="stat-label">本日优选</div><div class="stat-value" id="sSelected">—</div></div>
-  <div class="stat"><div class="stat-label">最高评分</div><div class="stat-value" id="sTop">—</div></div>
-  <div class="stat"><div class="stat-label">数据状态</div><div class="stat-value stat-status" id="sStatusMirror">初始化…</div></div>
+<div class="market-summary">
+  <div class="summary-kpis">
+    <div class="stat"><div class="stat-label">全市场ETF</div><div class="stat-value" id="sTotal">—</div></div>
+    <div class="stat"><div class="stat-label">流动性筛选</div><div class="stat-value" id="sScanned">—</div></div>
+    <div class="stat"><div class="stat-label">本日优选</div><div class="stat-value" id="sSelected">—</div></div>
+    <div class="stat"><div class="stat-label">最高评分</div><div class="stat-value" id="sTop">—</div></div>
+  </div>
+  <div class="summary-indices" id="marketIndices" aria-label="市场指数">
+    <div class="index-empty">指数加载中…</div>
+  </div>
 </div>
 
 <main>
@@ -74,7 +77,7 @@
           <tr>
             <th class="r rank-col">#</th>
             <th>代码</th>
-            <th>名称 / 规模折溢价</th>
+            <th>名称</th>
             <th>类别</th>
             <th class="r">现价</th>
             <th class="r sortable momentum-col" data-sort="change_pct" onclick="sortBy('change_pct')">今日<span class="sort-icon">↕</span></th>
