@@ -38,6 +38,20 @@ class NotificationConfigTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["msg_type"], "text")
         self.assertTrue(calls[0][1]["content"]["text"].startswith("QUANT"))
 
+    def test_format_holding_change_message_includes_before_and_after_labels(self):
+        text = notifications.format_holding_change_message([{
+            "code": "111111",
+            "name": "测试ETF",
+            "signal_changes": [
+                {"field": "模型信号", "from": "持有", "to": "卖出"},
+                {"field": "卖出信号", "from": "持有", "to": "建议卖出"},
+            ],
+        }])
+
+        self.assertIn("111111 测试ETF", text)
+        self.assertIn("模型信号：由「持有」变为「卖出」", text)
+        self.assertIn("卖出信号：由「持有」变为「建议卖出」", text)
+
     def test_watch_reminder_sends_once_per_trading_day_at_before_close_time(self):
         sent = []
         now = datetime(2026, 5, 20, 14, 45)

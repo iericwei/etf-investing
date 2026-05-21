@@ -172,8 +172,8 @@ class WebTargetGroupingTests(unittest.TestCase):
             self.assertEqual(row["signal_changes"][0], {"field": "模型信号", "from": "观望", "to": "卖出"})
             self.assertEqual(row["signal_changes"][1], {"field": "卖出信号", "from": "低风险", "to": "高风险"})
             notify.assert_called_once()
-            self.assertIn("模型信号有变更", notify.call_args.args[0])
-            self.assertNotIn("观望 -> 卖出", notify.call_args.args[0])
+            self.assertIn("模型信号：由「观望」变为「卖出」", notify.call_args.args[0])
+            self.assertIn("卖出信号：由「低风险」变为「高风险」", notify.call_args.args[0])
             saved = save_state.call_args.args[0]
             self.assertEqual(saved["111111"]["trade_signal_label"], "卖出")
             self.assertEqual(saved["111111"]["sell_signal_label"], "高风险")

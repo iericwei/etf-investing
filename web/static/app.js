@@ -89,7 +89,8 @@ function quoteLink(row, text, cls = '') {
   return `<a${klass} href="${esc(quoteUrl(code))}" target="_blank" rel="noopener noreferrer" title="在腾讯证券打开行情页">${label}</a>`;
 }
 function fundMetaHtml(r) {
-  const premiumTitle = `估算净值：${num(r.estimate_nav, 4)}${r.nav_date ? ' · ' + esc(r.nav_date) : ''}`;
+  const navLabel = r.metric_source === 'tencent' ? '腾讯IOPV' : '估算净值';
+  const premiumTitle = `${navLabel}：${num(r.estimate_nav, 4)}${r.nav_date ? ' · ' + esc(r.nav_date) : ''}`;
   return `<div class="fund-meta">
     <span title="基金规模">规模 ${moneyYi(r.fund_size)}</span>
     <span class="${pctCls(r.premium_rate_pct)}" title="${premiumTitle}">折溢价 ${pct(r.premium_rate_pct)}</span>

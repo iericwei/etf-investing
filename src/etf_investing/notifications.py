@@ -34,6 +34,25 @@ def send_feishu_text(text: str, webhook_url: str | None = None) -> bool:
     return _post_json(url, {"msg_type": "text", "content": {"text": body}})
 
 
+def _signal_change_text(change: dict[str, Any]) -> str:
+    field = str(change.get("field") or "信号").strip()
+    old = str(change.get("from") or "未知").strip() or "未知"
+    new = str(change.get("to") or "未知").strip() or "未知"
+    return f"- {field}：由「{old}」变为「{new}」"
+
+
+def format_holding_change_message(rows: list[dict[str, Any]]) -> str:
+    lines = ["持仓信号变动"]
+    for row in rows:
+        code = row.get("code")
+        name = row.get("name") or code
+        lines.append(f"{code} {name}")
+        for change in row.get("signal_changes", []):
+            if isinstance(change, dict):
+                lines.append(_signal_change_text(change))
+    return "\n".join(lines)
+
+
 def load_json_state(path: Path, default: dict | None = None) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

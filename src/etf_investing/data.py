@@ -157,6 +157,55 @@ def _parse_float(value, default: float | None = None) -> float | None:
         return default
 
 
+def _format_tencent_quote_time(value: str | None) -> str | None:
+    if not value or not re.fullmatch(r"\d{14}", str(value)):
+        return None
+    value = str(value)
+    return f"{value[:4]}-{value[4:6]}-{value[6:8]} {value[8:10]}:{value[10:12]}:{value[12:14]}"
+
+
+def _tencent_field(fields: list[str], idx: int, default: str = "") -> str:
+    return fields[idx] if len(fields) > idx else default
+
+
+def _parse_tencent_realtime_fields(fields: list[str]) -> dict | None:
+    if len(fields) < 40:
+        return None
+
+    code = _tencent_field(fields, 2)
+    price = _parse_float(_tencent_field(fields, 3), 0) or 0
+    prev = _parse_float(_tencent_field(fields, 4), 0) or 0
+    quote = {
+        "price":      price,
+        "prev_close": prev,
+        "change_pct": _parse_float(_tencent_field(fields, 32), 0) or 0,
+        "volume":     int(_parse_float(_tencent_field(fields, 6), 0) or 0),
+        "amount":     (_parse_float(_tencent_field(fields, 37), 0) or 0) * 10000,
+        "name":       _tencent_field(fields, 1),
+        "source":     "tencent",
+    }
+
+    fund_size_yi = (
+        _parse_float(_tencent_field(fields, 44))
+        or _parse_float(_tencent_field(fields, 45))
+    )
+    if fund_size_yi and fund_size_yi > 0:
+        quote["fund_size"] = fund_size_yi * 1e8
+
+    premium_rate_pct = _parse_float(_tencent_field(fields, 77))
+    estimate_nav = _parse_float(_tencent_field(fields, 78))
+    if premium_rate_pct is not None:
+        quote["premium_rate_pct"] = premium_rate_pct
+    if estimate_nav and estimate_nav > 0:
+        quote["estimate_nav"] = estimate_nav
+        quote["nav_date"] = _format_tencent_quote_time(_tencent_field(fields, 30))
+        quote["metric_source"] = "tencent"
+    elif premium_rate_pct is not None:
+        quote["metric_source"] = "tencent"
+
+    return {code: quote} if re.fullmatch(r"\d{6}", code or "") else None
+
+
 def fetch_fund_nav_estimates(codes: list[str], workers: int | None = None) -> Dict[str, dict]:
     """批量获取天天基金实时估算净值，用于按场内价格计算折溢价率。"""
     wanted = []
@@ -207,7 +256,7 @@ def fetch_fund_nav_estimates(codes: list[str], workers: int | None = None) -> Di
 
 
 def fetch_fund_quote_metrics(codes: list[str], workers: int | None = None) -> Dict[str, dict]:
-    """按代码补充 ETF 场内行情指标；主要用于自选/缓存缺失时补基金规模。"""
+    """按代码补充 ETF 场内行情指标；腾讯优先，东方财富仅兜底基金规模。"""
     wanted = []
     seen = set()
     for code in codes:
@@ -218,7 +267,21 @@ def fetch_fund_quote_metrics(codes: list[str], workers: int | None = None) -> Di
     if not wanted:
         return {}
 
-    workers = workers or min(12, max(1, len(wanted)))
+    out: Dict[str, dict] = {}
+    for code, quote in _realtime_tencent(wanted).items():
+        data = {
+            key: quote.get(key)
+            for key in ("name", "fund_size", "premium_rate_pct", "estimate_nav", "nav_date", "metric_source")
+            if quote.get(key) is not None
+        }
+        if data:
+            out[code] = data
+
+    fallback_codes = [code for code in wanted if not out.get(code, {}).get("fund_size")]
+    if not fallback_codes:
+        return out
+
+    workers = workers or min(12, max(1, len(fallback_codes)))
     headers = request_headers("eastmoney")
     fields = "f57,f58,f116,f117,f20,f21"
 
@@ -269,13 +332,12 @@ def fetch_fund_quote_metrics(codes: list[str], workers: int | None = None) -> Di
             logger.debug(f"[fund_detail_metrics] {code}: {e}")
             return code, None
 
-    out: Dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        fmap = {ex.submit(fetch_one, code): code for code in wanted}
+        fmap = {ex.submit(fetch_one, code): code for code in fallback_codes}
         for future in as_completed(fmap):
             code, data = future.result()
             if data:
-                out[code] = data
+                out.setdefault(code, {}).update({k: v for k, v in data.items() if v is not None})
     return out
 
 
@@ -696,21 +758,9 @@ def _realtime_tencent(codes: List[str]) -> Dict[str, dict]:
             m = re.match(r'^v_\w+="([^"]+)"', line.strip().rstrip(";"))
             if not m:
                 continue
-            f = m.group(1).split("~")
-            if len(f) < 40:
-                continue
-            code = f[2]
-            price = float(f[3] or 0)
-            prev = float(f[4] or 0)
-            out[code] = {
-                "price":      price,
-                "prev_close": prev,
-                "change_pct": float(f[32] or 0),
-                "volume":     int(float(f[6] or 0)),
-                "amount":     float(f[37] or 0) * 10000,
-                "name":       f[1],
-                "source":     "tencent",
-            }
+            parsed = _parse_tencent_realtime_fields(m.group(1).split("~"))
+            if parsed:
+                out.update(parsed)
         return out
     except Exception as e:
         logger.debug(f"[tencent_rt]: {e}")

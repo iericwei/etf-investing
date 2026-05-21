@@ -30,6 +30,7 @@ from .strategy import (
 )
 from .notifications import (
     SIGNAL_STATE_FILE,
+    format_holding_change_message,
     load_json_state,
     maybe_send_watch_reminder,
     save_json_state,
@@ -242,14 +243,7 @@ def _annotate_holding_signal_changes(rows: list[dict], previous_state: dict | No
 
 
 def _format_holding_change_message(rows: list[dict]) -> str:
-    lines = ["持仓信号变动"]
-    for row in rows:
-        code = row.get("code")
-        name = row.get("name") or code
-        lines.append(f"{code} {name}")
-        for change in row.get("signal_changes", []):
-            lines.append(f"- {change['field']}有变更")
-    return "\n".join(lines)
+    return format_holding_change_message(rows)
 
 
 def _notify_holding_signal_changes(rows: list[dict]) -> None:
@@ -300,8 +294,13 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
     except Exception:
         score_map = {}
 
-    nav_map = fetch_fund_nav_estimates(codes)
     quote_metrics = fetch_fund_quote_metrics(codes)
+    nav_fallback_codes = [
+        code for code in codes
+        if quote_metrics.get(code, {}).get("premium_rate_pct") is None
+        or not quote_metrics.get(code, {}).get("estimate_nav")
+    ]
+    nav_map = fetch_fund_nav_estimates(nav_fallback_codes) if nav_fallback_codes else {}
 
     rows = []
     for offset, code in enumerate(codes):
@@ -314,9 +313,11 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
         price = rt.get("price") or float(last.get("close", 0))
         nav_info = nav_map.get(code, {})
         quote_info = quote_metrics.get(code, {})
-        estimate_nav = float(nav_info.get("estimate_nav") or 0)
-        premium_rate_pct = round((float(price) / estimate_nav - 1) * 100, 2) if estimate_nav > 0 and price else None
-        fund_size = float(m.get("fund_size") or quote_info.get("fund_size") or 0)
+        estimate_nav = float(quote_info.get("estimate_nav") or nav_info.get("estimate_nav") or 0)
+        premium_rate_pct = quote_info.get("premium_rate_pct")
+        if premium_rate_pct is None:
+            premium_rate_pct = round((float(price) / estimate_nav - 1) * 100, 2) if estimate_nav > 0 and price else None
+        fund_size = float(quote_info.get("fund_size") or m.get("fund_size") or 0)
         trade_signal = compute_trade_signal(enriched[code], realtime_price=float(price or 0))
         rows.append({
             "rank":            rank_start + offset,
@@ -328,7 +329,8 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
             "fund_size":       fund_size,
             "premium_rate_pct": premium_rate_pct,
             "estimate_nav":    estimate_nav or None,
-            "nav_date":        nav_info.get("nav_date"),
+            "nav_date":        quote_info.get("nav_date") or nav_info.get("nav_date"),
+            "metric_source":    quote_info.get("metric_source") or ("eastmoney" if nav_info else None),
             "ret3":            round(float(row["ret3"]), 2),
             "ret5":            round(float(row["ret5"]), 2),
             "ret10":           round(float(row["ret10"]), 2),
