@@ -145,8 +145,8 @@ body {
 /* ── Market summary ──────────────────────────────────────────────── */
 .market-summary {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(430px, .92fr);
-  gap: 20px;
+  grid-template-columns: minmax(520px, 1fr) minmax(480px, 520px);
+  gap: 28px;
   padding: 1px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -190,8 +190,10 @@ body {
 .stat-status.status-error { color: var(--red); }
 .summary-indices {
   display: grid;
-  grid-template-columns: repeat(4, minmax(116px, 1fr));
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
   gap: 1px;
+  justify-self: end;
+  width: min(100%, 520px);
   min-width: 0;
 }
 .index-card, .index-empty {

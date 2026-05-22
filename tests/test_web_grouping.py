@@ -69,13 +69,29 @@ class WebTargetGroupingTests(unittest.TestCase):
         with web_app._lock:
             old_cache = dict(web_app._cache)
             web_app._cache.update(
-                results=[{"code": "111111", "rank": 1, "trade_signal": cached_signal}],
+                results=[{
+                    "code": "111111",
+                    "rank": 1,
+                    "trade_signal": cached_signal,
+                    "ret5": 2.34,
+                    "rsi": 61.2,
+                    "backtest_return_pct": 8.9,
+                    "backtest": {"window_days": 22, "curve": [], "trade_points": []},
+                }],
                 etf_map={},
             )
         try:
             with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
                  patch.object(web_app, "_load_watchlist", return_value=[]), \
-                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={"111111": {"code": "111111", "rank": 1, "trade_signal": cached_signal}}), \
+                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={"111111": {
+                     "code": "111111",
+                     "rank": 1,
+                     "trade_signal": cached_signal,
+                     "ret5": 2.34,
+                     "rsi": 61.2,
+                     "backtest_return_pct": 8.9,
+                     "backtest": {"window_days": 22, "curve": [], "trade_points": []},
+                 }}), \
                  patch.object(web_app, "fetch_realtime", return_value={"111111": {"name": "测试ETF", "price": 1.23, "change_pct": 0.5, "amount": 1000}}), \
                  patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "科技"}}):
                 res = web_app.app.test_client().get("/api/holdings/realtime")
@@ -83,6 +99,9 @@ class WebTargetGroupingTests(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
             payload = res.get_json()
             self.assertEqual(payload["data"][0]["trade_signal"], cached_signal)
+            self.assertEqual(payload["data"][0]["ret5"], 2.34)
+            self.assertEqual(payload["data"][0]["rsi"], 61.2)
+            self.assertEqual(payload["data"][0]["backtest_return_pct"], 8.9)
         finally:
             with web_app._lock:
                 web_app._cache.clear()

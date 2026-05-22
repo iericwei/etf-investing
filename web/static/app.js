@@ -502,9 +502,10 @@ async function refreshHoldings() {
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>代码</th><th>名称</th><th>类别</th>
-            <th class="r">实时价</th><th class="r">涨跌幅</th>
-            <th class="r">成交额</th><th style="text-align:center">榜单</th>
+            <th>代码</th><th>名称</th>
+            <th class="r">实时价</th><th class="r">涨跌幅</th><th class="r">5日</th>
+            <th class="r">RSI</th><th class="r">成交额</th><th style="text-align:center">榜单</th>
+            <th class="r" title="收盘前15分钟方案">回测1月</th>
             <th style="text-align:center">模型信号</th>
             <th style="text-align:center">卖出信号</th>
             <th style="text-align:center">操作</th>
@@ -514,13 +515,15 @@ async function refreshHoldings() {
               <tr data-code="${r.code}">
                 <td>${quoteLink(r, r.code, 'code quote-link')}</td>
                 <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
-                <td>${catBadge(r.category)}</td>
                 <td class="r">${r.price > 0 ? r.price.toFixed(3) : '—'}</td>
                 <td class="r ${pctCls(r.change_pct)}">${r.price > 0 ? pct(r.change_pct) : '—'}</td>
+                <td class="r ${pctCls(r.ret5)}">${pct(r.ret5)}</td>
+                <td class="r ${Number.isFinite(Number(r.rsi)) ? rsiCls(Number(r.rsi)) : 'neu'}">${num(r.rsi, 1)}</td>
                 <td class="r">${r.amount > 0 ? (r.amount/1e8).toFixed(2)+'亿' : '—'}</td>
                 <td style="text-align:center">
                   ${r.rank ? `<span class="rank-badge">#${r.rank}</span>` : '<span style="color:var(--muted);font-size:11px">未入榜</span>'}
                 </td>
+                <td class="r">${backtestCell(r)}</td>
                 <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}${signalChangesHtml(r)}</td>
                 <td style="text-align:center">${sellBadge(r.sell_signals)}</td>
                 <td style="text-align:center">
