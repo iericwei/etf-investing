@@ -42,6 +42,8 @@ let _activeSellWrap = null;
 let _floatingSellTip = null;
 let _sortField = null;
 let _sortDir = 'desc';
+let _holdingsSortField = null;
+let _holdingsSortDir = 'desc';
 const CUSTOM_TAB = '自选';
 
 const SORT_LABELS = {
@@ -56,6 +58,8 @@ const SORT_LABELS = {
   rsi: 'RSI',
   vol_ratio: '量比',
   signal_sort: '模型信号',
+  c3_sell_level: 'C3卖出',
+  sell_urgency_level: '卖出信号',
 };
 
 function pct(v) {
@@ -75,6 +79,12 @@ function num(v, digits = 2) {
 function moneyYi(v) {
   v = Number(v);
   return Number.isFinite(v) && v > 0 ? (v / 1e8).toFixed(1) + '亿' : '—';
+}
+function todayLocalISO() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
@@ -115,6 +125,18 @@ function fundMetaHtml(r) {
     <span title="基金规模">规模 ${moneyYi(r.fund_size)}</span>
     <span class="${pctCls(r.premium_rate_pct)}" title="${premiumTitle}">折溢价 ${pct(r.premium_rate_pct)}</span>
   </div>`;
+}
+function holdingMetaHtml(r) {
+  const hasEntry = Number.isFinite(Number(r.entry_price)) && Number(r.entry_price) > 0;
+  const parts = [
+    `<span title="买入价">成本 ${hasEntry ? num(r.entry_price, 3) : '—'}</span>`,
+    `<span title="买入日期">买入日 ${r.entry_date ? esc(r.entry_date) : '—'}</span>`,
+    `<span title="持仓峰值">峰值 ${Number.isFinite(Number(r.peak_price)) ? num(r.peak_price, 3) : '—'}</span>`,
+    `<span title="连续软退出天数">软退出 ${Number(r.soft_days || 0)}天</span>`,
+  ];
+  const editText = hasEntry ? '改成本' : '设成本';
+  parts.push(`<button class="meta-action" onclick="event.stopPropagation();editHoldingMeta('${esc(r.code)}')">${editText}</button>`);
+  return `<div class="fund-meta holding-meta">${parts.join('')}</div>`;
 }
 function rsiCls(v) {
   return v > 75 ? 'rsi-hot' : v > 65 ? 'rsi-warm' : v < 35 ? 'rsi-cold' : 'rsi-good';
@@ -271,6 +293,25 @@ function sellBadge(sell) {
     : '';
   return `<div class="sell-wrap"><span class="sell-badge ${cls}">${sell.urgency || '—'}</span>${tip}</div>`;
 }
+function c3ExitBadge(r) {
+  const signal = r && r.c3_exit_signal;
+  if (!signal) return '<span class="sell-badge sell-na">暂无数据</span>';
+  const lvl = Number.isFinite(Number(r.c3_sell_level)) ? Number(r.c3_sell_level) : -1;
+  const cls = lvl < 0 ? 'sell-na' : `sell-${Math.max(0, Math.min(3, lvl))}`;
+  const metrics = signal.metrics || {};
+  const detail = [
+    ['状态', r.c3_sell_label || signal.reason || '—'],
+    ['优先级', signal.priority || '—'],
+    ['收益', pct(metrics.return_pct)],
+    ['回撤', pct(metrics.drawdown_pct)],
+    ['买入价', num(metrics.entry_price || r.entry_price, 3)],
+    ['峰值', num(metrics.peak_price || r.peak_price, 3)],
+    ['持仓天数', Number.isFinite(Number(metrics.hold_days)) ? `${Number(metrics.hold_days)}天` : '—'],
+    ['软退出', `${Number(signal.soft_days || r.soft_days || 0)}天`],
+  ].map(([k, v]) => `<div class="sig-item"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
+  const tip = `<div class="tip-content signal-tip"><div class="tip-title">Eric C3 Rotation 出场明细</div>${detail}</div>`;
+  return `<div class="sell-wrap"><span class="sell-badge ${cls}">${esc(r.c3_sell_label || signal.reason || '—')}</span>${tip}</div>`;
+}
 function signalChangesHtml(r) {
   const changes = Array.isArray(r.signal_changes) ? r.signal_changes : [];
   if (!changes.length) return '';
@@ -376,16 +417,51 @@ async function loadHoldings() {
 
 async function toggleHolding(code) {
   try {
+    const adding = !_holdings.has(code);
+    const row = dataRows(_allResults).find(r => r.code === code) || {};
+    const entryPrice = Number(row.price);
+    const payload = {code};
+    if (adding && Number.isFinite(entryPrice) && entryPrice > 0) {
+      payload.entry_price = entryPrice;
+      payload.peak_price = entryPrice;
+      payload.entry_date = todayLocalISO();
+    }
     const d = await (await fetch('/api/holdings/toggle', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({code}),
+      body: JSON.stringify(payload),
     })).json();
     _holdings = new Set(d.holdings || []);
     applyHoldings();
     buildTabs(_allResults);   // 更新持仓 Tab 计数
     renderRows(currentList());
   } catch(e) {}
+}
+
+async function editHoldingMeta(code) {
+  const priceRaw = prompt('买入价', '');
+  if (priceRaw == null) return;
+  const entryPrice = Number(priceRaw);
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    alert('买入价必须大于 0');
+    return;
+  }
+  const dateRaw = prompt('买入日期 YYYY-MM-DD', todayLocalISO());
+  if (dateRaw == null) return;
+  const entryDate = String(dateRaw).trim() || todayLocalISO();
+  const res = await fetch(`/api/holdings/${code}`, {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({entry_price: entryPrice, entry_date: entryDate, peak_price: entryPrice, soft_days: 0}),
+  }).catch(() => null);
+  if (!res) return;
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.ok === false) {
+    alert(d.error || '更新失败');
+    return;
+  }
+  _holdings = new Set(d.holdings || []);
+  await refreshHoldings();
 }
 
 async function loadWatchlist() {
@@ -514,10 +590,11 @@ async function refreshHoldings() {
     const items = d.data || [];
     const body = document.getElementById('hpBody');
     if (!items.length) {
-      body.innerHTML = '<div class="hp-empty">暂无持仓标的，在列表中点击「+ 持仓」添加</div>';
+    body.innerHTML = '<div class="hp-empty">暂无持仓标的，在列表中点击「+ 持仓」添加</div>';
       updateStickyTables();
       return;
     }
+    const sortedItems = sortHoldingsRows(items);
     body.innerHTML = `
       <div class="table-wrap">
         <table>
@@ -526,15 +603,16 @@ async function refreshHoldings() {
             <th class="r">实时价</th><th class="r">涨跌幅</th><th class="r">5日</th>
             <th class="r">RSI</th><th class="r">成交额</th><th style="text-align:center">榜单</th>
             <th class="r" title="当前策略绑定的回测方案">策略回测</th>
-            <th style="text-align:center">模型信号</th>
-            <th style="text-align:center">卖出信号</th>
+            <th style="text-align:center" class="sortable" data-sort-scope="holdings" data-sort="signal_sort" onclick="sortHoldingsBy('signal_sort')">模型信号<span class="sort-icon">↕</span></th>
+            <th style="text-align:center" class="sortable" data-sort-scope="holdings" data-sort="c3_sell_level" onclick="sortHoldingsBy('c3_sell_level')">C3卖出<span class="sort-icon">↕</span></th>
+            <th style="text-align:center" class="sortable" data-sort-scope="holdings" data-sort="sell_urgency_level" onclick="sortHoldingsBy('sell_urgency_level')">卖出信号<span class="sort-icon">↕</span></th>
             <th style="text-align:center">操作</th>
           </tr></thead>
           <tbody>
-            ${items.map(r => `
+            ${sortedItems.map(r => `
               <tr data-code="${r.code}">
                 <td>${quoteLink(r, r.code, 'code quote-link')}</td>
-                <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
+                <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}${holdingMetaHtml(r)}</td>
                 <td class="r">${r.price > 0 ? r.price.toFixed(3) : '—'}</td>
                 <td class="r ${pctCls(r.change_pct)}">${r.price > 0 ? pct(r.change_pct) : '—'}</td>
                 <td class="r ${pctCls(r.ret5)}">${pct(r.ret5)}</td>
@@ -545,6 +623,7 @@ async function refreshHoldings() {
                 </td>
                 <td class="r">${backtestCell(r)}</td>
                 <td style="text-align:center">${tradeSignalBadge(r.trade_signal)}${signalChangesHtml(r)}</td>
+                <td style="text-align:center">${c3ExitBadge(r)}</td>
                 <td style="text-align:center">${sellBadge(r.sell_signals)}</td>
                 <td style="text-align:center">
                   <button class="btn-hold active" onclick="toggleHolding('${r.code}')">移除</button>
@@ -553,6 +632,7 @@ async function refreshHoldings() {
           </tbody>
         </table>
       </div>`;
+    updateSortHeaders();
     updateStickyTables();
   } catch(e) { console.error(e); }
 }
@@ -634,17 +714,46 @@ function numericValue(row, field) {
   return Number(value);
 }
 
+function sellUrgencyValue(row) {
+  const sell = row && row.sell_signals;
+  const value = sell && sell.urgency_level;
+  return value == null || Number.isNaN(Number(value)) ? null : Number(value);
+}
+
+function sortValue(row, field) {
+  if (field === 'sell_urgency_level') return sellUrgencyValue(row);
+  return numericValue(row, field);
+}
+
 function sortRows(list) {
   const rows = dataRows(list);
   if (!_sortField) return rows;
   const dir = _sortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
-    const av = numericValue(a, _sortField);
-    const bv = numericValue(b, _sortField);
+    const av = sortValue(a, _sortField);
+    const bv = sortValue(b, _sortField);
     if (av == null && bv == null) return a.rank - b.rank;
     if (av == null) return 1;
     if (bv == null) return -1;
     if (av === bv) return a.rank - b.rank;
+    return (av - bv) * dir;
+  });
+  return rows;
+}
+
+function sortHoldingsRows(list) {
+  const rows = Array.isArray(list) ? list.slice() : [];
+  if (!_holdingsSortField) return rows;
+  const dir = _holdingsSortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = sortValue(a, _holdingsSortField);
+    const bv = sortValue(b, _holdingsSortField);
+    const ar = Number(a.rank) || 999999;
+    const br = Number(b.rank) || 999999;
+    if (av == null && bv == null) return ar - br;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (av === bv) return ar - br;
     return (av - bv) * dir;
   });
   return rows;
@@ -666,12 +775,25 @@ function sortBy(field) {
   renderRows(currentList());
 }
 
+function sortHoldingsBy(field) {
+  if (_holdingsSortField === field) {
+    _holdingsSortDir = _holdingsSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _holdingsSortField = field;
+    _holdingsSortDir = 'desc';
+  }
+  refreshHoldings();
+}
+
 function updateSortHeaders() {
   document.querySelectorAll('th.sortable').forEach(th => {
     const field = th.dataset.sort;
     const label = SORT_LABELS[field] || th.textContent.replace(/[↓↑↕]/g, '').trim();
-    th.classList.toggle('active', field === _sortField);
-    const icon = field === _sortField ? (_sortDir === 'desc' ? '↓' : '↑') : '↕';
+    const holdings = th.dataset.sortScope === 'holdings';
+    const active = holdings ? field === _holdingsSortField : field === _sortField;
+    const dir = holdings ? _holdingsSortDir : _sortDir;
+    th.classList.toggle('active', active);
+    const icon = active ? (dir === 'desc' ? '↓' : '↑') : '↕';
     th.innerHTML = `${label}<span class="sort-icon">${icon}</span>`;
   });
 }
@@ -720,6 +842,7 @@ function selectTab(cat) {
   if (cat === '持仓') {
     table.style.display   = 'none';
     hpPanel.style.display = 'block';
+    refreshHoldings();
     startHoldingsTimer();
   } else {
     table.style.display   = '';
@@ -738,13 +861,12 @@ function renderRows(list) {
     : insertGroupHeaders(list);
   document.getElementById('tbody').innerHTML = rows.map(r => {
     if (r._is_group_header) {
-      return `<tr class="group-header" data-cat="${esc(r.category)}"><td colspan="16">${esc(r.category)}</td></tr>`;
+      return `<tr class="group-header" data-cat="${esc(r.category)}"><td colspan="15">${esc(r.category)}</td></tr>`;
     }
     return `<tr data-code="${r.code}" class="${_holdings.has(r.code) ? 'holding' : ''}">
       <td class="r">${rankCell(r)}</td>
       <td>${quoteLink(r, r.code, 'code quote-link')}</td>
       <td class="name-cell">${quoteLink(r, r.name, 'quote-link')}${fundMetaHtml(r)}</td>
-      <td>${catBadge(r.category || '自选')}</td>
       <td class="r">${num(r.price, 3)}</td>
       <td class="r momentum-col ${pctCls(r.change_pct)}">${pct(r.change_pct)}</td>
       <td class="r momentum-col ${pctCls(r.ret3)}">${pct(r.ret3)}</td>

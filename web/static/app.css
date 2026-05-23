@@ -378,18 +378,17 @@ main { padding: 14px 20px 20px; }
 }
 table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1100px;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
 .col-rank { width: 52px; }
 .col-code { width: 78px; }
 .col-name { width: 220px; }
-.col-cat { width: 86px; }
 .col-price { width: 78px; }
 .col-momentum { width: 78px; }
 .col-tech { width: 72px; }
-.col-signal { width: 160px; }
+.col-signal { width: 142px; }
 .col-decision { width: 118px; }
 .col-backtest { width: 94px; }
 .col-score { width: 128px; }
@@ -430,7 +429,7 @@ tbody tr:nth-child(even):not(.group-header) { background: var(--row-alt); }
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: var(--row-hover); }
 td {
-  padding: 8px 10px;
+  padding: 6px 10px;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -472,12 +471,24 @@ td.score-priority { background: rgba(87,166,255,.025); }
 .fund-meta {
   display: flex;
   gap: 8px;
-  margin-top: 3px;
+  margin-top: 2px;
   font-size: 11px;
-  line-height: 1.25;
+  line-height: 1.18;
   color: var(--muted);
 }
 .fund-meta span { white-space: nowrap; }
+.holding-meta { gap: 6px; color: var(--text2); }
+.meta-action {
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.meta-action:hover { color: var(--blue); border-color: rgba(88,166,255,.45); }
 
 /* category badge */
 .cat { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
@@ -494,8 +505,8 @@ td.score-priority { background: rgba(87,166,255,.025); }
 .rsi-cold { color: var(--blue); }
 
 /* signals */
-.sigs { display: flex; gap: 4px; flex-wrap: wrap; min-width: 116px; max-width: 176px; }
-.sig { font-size: 11px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.sigs { display: flex; gap: 3px; flex-wrap: wrap; min-width: 104px; max-width: 150px; }
+.sig { font-size: 10px; padding: 1px 5px; border-radius: 4px; white-space: nowrap; line-height: 1.45; }
 .s-ma   { background: rgba(54,185,106,.08);  color: var(--green);  border: 1px solid rgba(54,185,106,.22); }
 .s-macd { background: rgba(221,181,74,.08); color: var(--yellow); border: 1px solid rgba(221,181,74,.22); }
 .s-vol  { background: rgba(238,147,70,.08); color: var(--orange); border: 1px solid rgba(238,147,70,.22); }
@@ -618,11 +629,12 @@ tr.holding {
 .trade-wrap { position: relative; cursor: default; display: inline-block; }
 .sell-badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 3px 9px;
+  padding: 2px 7px;
   border-radius: 4px;
   white-space: nowrap;
+  line-height: 1.45;
 }
 .sell-0 { background: rgba(54,185,106,.08);  color: var(--green);  border: 1px solid rgba(54,185,106,.26);  }
 .sell-1 { background: rgba(221,181,74,.09); color: var(--yellow); border: 1px solid rgba(221,181,74,.26); }
@@ -631,16 +643,17 @@ tr.holding {
 .sell-na{ background: var(--surface2);      color: var(--muted);  border: 1px solid var(--border); }
 .trade-badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 3px 9px;
+  padding: 2px 7px;
   border-radius: 4px;
   white-space: nowrap;
+  line-height: 1.45;
 }
 .trade-buy  { background: rgba(54,185,106,.10); color: var(--green); border: 1px solid rgba(54,185,106,.3); }
 .trade-hold { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 .trade-sell { background: rgba(240,91,87,.10); color: var(--red); border: 1px solid rgba(240,91,87,.3); }
-.signal-change { margin-top: 4px; color: var(--red); font-size: 11px; line-height: 1.35; }
+.signal-change { margin-top: 2px; color: var(--red); font-size: 10px; line-height: 1.25; }
 .trade-wrap .tip-content { min-width: 220px; }
 .trade-wrap:hover .tip-content { display: none; }
 .backtest-wrap { position: relative; cursor: default; display: inline-block; }
@@ -908,10 +921,10 @@ tr.group-header td::before {
   td.score-priority { order: -2; background: rgba(87,166,255,.035); }
   #tbody tr td:nth-child(3) { order: -5; }
   #tbody tr td:nth-child(2) { order: -4; }
-  #tbody tr td:nth-child(15) { order: -3; }
-  #tbody tr td:nth-child(6) { order: -2; }
-  #tbody tr td:nth-child(13) { order: -1; }
-  #tbody tr td:nth-child(16) { order: 0; }
+  #tbody tr td:nth-child(14) { order: -3; }
+  #tbody tr td:nth-child(5) { order: -2; }
+  #tbody tr td:nth-child(12) { order: -1; }
+  #tbody tr td:nth-child(15) { order: 0; }
   .tip-content { max-width: min(86vw, 320px); }
   .floating-tip { max-width: calc(100vw - 24px); }
 
@@ -919,31 +932,33 @@ tr.group-header td::before {
   #tbody td:nth-child(1)::before { content: '#'; }
   #tbody td:nth-child(2)::before { content: '代码'; }
   #tbody td:nth-child(3)::before { content: '名称'; }
-  #tbody td:nth-child(4)::before { content: '类别'; }
-  #tbody td:nth-child(5)::before { content: '现价'; }
-  #tbody td:nth-child(6)::before { content: '今日'; }
-  #tbody td:nth-child(7)::before { content: '3日'; }
-  #tbody td:nth-child(8)::before { content: '5日'; }
-  #tbody td:nth-child(9)::before { content: '10日'; }
-  #tbody td:nth-child(10)::before { content: 'RSI'; }
-  #tbody td:nth-child(11)::before { content: '量比'; }
-  #tbody td:nth-child(12)::before { content: '信号'; }
-  #tbody td:nth-child(13)::before { content: '模型'; }
-  #tbody td:nth-child(14)::before { content: '回测'; }
-  #tbody td:nth-child(15)::before { content: '评分'; }
-  #tbody td:nth-child(16)::before { content: '操作'; }
+  #tbody td:nth-child(4)::before { content: '现价'; }
+  #tbody td:nth-child(5)::before { content: '今日'; }
+  #tbody td:nth-child(6)::before { content: '3日'; }
+  #tbody td:nth-child(7)::before { content: '5日'; }
+  #tbody td:nth-child(8)::before { content: '10日'; }
+  #tbody td:nth-child(9)::before { content: 'RSI'; }
+  #tbody td:nth-child(10)::before { content: '量比'; }
+  #tbody td:nth-child(11)::before { content: '信号'; }
+  #tbody td:nth-child(12)::before { content: '模型'; }
+  #tbody td:nth-child(13)::before { content: '回测'; }
+  #tbody td:nth-child(14)::before { content: '评分'; }
+  #tbody td:nth-child(15)::before { content: '操作'; }
 
   /* 持仓面板字段标签 */
   #holdings-panel tbody td:nth-child(1)::before { content: '代码'; }
   #holdings-panel tbody td:nth-child(2)::before { content: '名称'; }
-  #holdings-panel tbody td:nth-child(3)::before { content: '类别'; }
-  #holdings-panel tbody td:nth-child(4)::before { content: '实时价'; }
-  #holdings-panel tbody td:nth-child(5)::before { content: '涨跌幅'; }
-  #holdings-panel tbody td:nth-child(6)::before { content: '成交额'; }
-  #holdings-panel tbody td:nth-child(7)::before { content: '榜单'; }
-  #holdings-panel tbody td:nth-child(8)::before { content: '模型'; }
-  #holdings-panel tbody td:nth-child(9)::before { content: '卖出'; }
-  #holdings-panel tbody td:nth-child(10)::before { content: '操作'; }
+  #holdings-panel tbody td:nth-child(3)::before { content: '实时价'; }
+  #holdings-panel tbody td:nth-child(4)::before { content: '涨跌幅'; }
+  #holdings-panel tbody td:nth-child(5)::before { content: '5日'; }
+  #holdings-panel tbody td:nth-child(6)::before { content: 'RSI'; }
+  #holdings-panel tbody td:nth-child(7)::before { content: '成交额'; }
+  #holdings-panel tbody td:nth-child(8)::before { content: '榜单'; }
+  #holdings-panel tbody td:nth-child(9)::before { content: '回测'; }
+  #holdings-panel tbody td:nth-child(10)::before { content: '模型'; }
+  #holdings-panel tbody td:nth-child(11)::before { content: 'C3卖出'; }
+  #holdings-panel tbody td:nth-child(12)::before { content: '卖出'; }
+  #holdings-panel tbody td:nth-child(13)::before { content: '操作'; }
 
   tr.group-header {
     border: none;

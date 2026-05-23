@@ -3,6 +3,7 @@ import unittest
 import copy
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import pandas as pd
@@ -50,6 +51,53 @@ class WebTargetGroupingTests(unittest.TestCase):
         names = {item["name"] for item in strategy["options"]}
         self.assertIn("eric_c3_rotation", names)
         self.assertIn("legacy_single_symbol", names)
+
+    def test_holding_records_accept_legacy_string_list(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "holdings.json"
+            path.write_text('["111111", "222222"]', encoding="utf-8")
+            with patch.object(web_app, "_HOLDINGS_FILE", path):
+                records = web_app._load_holding_records()
+                holdings = web_app._load_holdings()
+
+        self.assertEqual(records, [{"code": "111111"}, {"code": "222222"}])
+        self.assertEqual(holdings, ["111111", "222222"])
+
+    def test_toggle_holding_saves_entry_metadata(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "holdings.json"
+            path.write_text("[]", encoding="utf-8")
+            with patch.object(web_app, "_HOLDINGS_FILE", path):
+                res = web_app.app.test_client().post(
+                    "/api/holdings/toggle",
+                    json={"code": "111111", "entry_price": 1.23, "entry_date": "2026-05-23"},
+                )
+                payload = res.get_json()
+                saved = web_app._load_holding_records()
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(payload["added"])
+        self.assertEqual(saved[0]["code"], "111111")
+        self.assertEqual(saved[0]["entry_price"], 1.23)
+        self.assertEqual(saved[0]["entry_date"], "2026-05-23")
+        self.assertEqual(saved[0]["peak_price"], 1.23)
+
+    def test_update_holding_metadata_endpoint(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "holdings.json"
+            path.write_text('[{"code":"111111"}]', encoding="utf-8")
+            with patch.object(web_app, "_HOLDINGS_FILE", path):
+                res = web_app.app.test_client().patch(
+                    "/api/holdings/111111",
+                    json={"entry_price": 1.2, "entry_date": "2026-05-01", "peak_price": 1.35, "soft_days": 2},
+                )
+                saved = web_app._load_holding_records()[0]
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(saved["entry_price"], 1.2)
+        self.assertEqual(saved["entry_date"], "2026-05-01")
+        self.assertEqual(saved["peak_price"], 1.35)
+        self.assertEqual(saved["soft_days"], 2)
 
     def test_target_group_name_strips_etf_and_issuer_suffix(self):
         self.assertEqual(_target_group_name("半导体设备ETF国泰"), "半导体设备")
@@ -137,6 +185,61 @@ class WebTargetGroupingTests(unittest.TestCase):
             self.assertEqual(payload["data"][0]["ret5"], 2.34)
             self.assertEqual(payload["data"][0]["rsi"], 61.2)
             self.assertEqual(payload["data"][0]["backtest_return_pct"], 8.9)
+        finally:
+            with web_app._lock:
+                web_app._cache.clear()
+                web_app._cache.update(old_cache)
+
+    def test_holdings_realtime_adds_c3_exit_signal_from_holding_metadata(self):
+        df = pd.DataFrame({
+            "date": pd.date_range("2026-05-01", periods=12, freq="B"),
+            "open": [1.0] * 12,
+            "close": [1.0] * 12,
+            "high": [1.1] * 12,
+            "low": [0.9] * 12,
+            "volume": [1000] * 12,
+        })
+        exit_signal = {
+            "strategy": "eric_c3_rotation",
+            "should_sell": True,
+            "reason": "硬止损",
+            "priority": "hard_stop_loss",
+            "soft_days": 0,
+            "metrics": {"entry_price": 1.3, "peak_price": 1.35, "return_pct": -6.0, "drawdown_pct": 8.0, "hold_days": 22},
+        }
+        with web_app._lock:
+            old_cache = dict(web_app._cache)
+            web_app._cache.update(
+                results=[{"code": "111111", "rank": 1, "trade_signal": {"action": "hold", "label": "C3观望"}}],
+                etf_map={"111111": df},
+            )
+        try:
+            with patch.object(web_app, "_load_holdings", return_value=["111111"]), \
+                 patch.object(web_app, "_load_holding_records", return_value=[{
+                     "code": "111111",
+                     "entry_price": 1.3,
+                     "entry_date": "2026-05-01",
+                     "peak_price": 1.32,
+                     "soft_days": 1,
+                 }]), \
+                 patch.object(web_app, "_save_holding_records") as save_records, \
+                 patch.object(web_app, "_load_watchlist", return_value=[]), \
+                 patch.object(web_app, "_refresh_cached_rows_for_codes", return_value={"111111": {"code": "111111", "rank": 1}}), \
+                 patch.object(web_app, "fetch_realtime", return_value={"111111": {"name": "测试ETF", "price": 1.22, "change_pct": -1.0, "amount": 1000}}), \
+                 patch.object(web_app, "_universe_meta", return_value={"111111": {"category": "科技"}}), \
+                 patch.object(web_app, "compute_sell_signals", return_value={"signals": [], "urgency": "低风险", "urgency_level": 0}), \
+                 patch.object(web_app, "evaluate_portfolio_exit", return_value=exit_signal) as evaluate:
+                res = web_app.app.test_client().get("/api/holdings/realtime")
+
+            self.assertEqual(res.status_code, 200)
+            row = res.get_json()["data"][0]
+            self.assertEqual(row["c3_sell_label"], "硬止损")
+            self.assertEqual(row["c3_sell_level"], 3)
+            self.assertEqual(row["c3_exit_signal"], exit_signal)
+            evaluate.assert_called_once()
+            saved = save_records.call_args.args[0][0]
+            self.assertEqual(saved["peak_price"], 1.35)
+            self.assertEqual(saved["soft_days"], 0)
         finally:
             with web_app._lock:
                 web_app._cache.clear()
@@ -247,6 +350,33 @@ class WebTargetGroupingTests(unittest.TestCase):
 
         self.assertEqual([r["code"] for r in buys], ["111111"])
         self.assertEqual([r["code"] for r in sells], ["222222", "333333"])
+
+    def test_collect_strategy_signal_rows_includes_c3_sell_signal(self):
+        results = [
+            {"code": "111111", "rank": 1, "score": 80, "trade_signal": {"action": "hold"}},
+        ]
+        holdings = [
+            {
+                "code": "111111",
+                "rank": 1,
+                "trade_signal": {"action": "hold"},
+                "sell_signals": {"urgency_level": 0},
+                "c3_exit_signal": {"should_sell": True, "reason": "硬止损", "priority": "hard_stop_loss"},
+            },
+        ]
+        old_notifications = dict(web_app.CONFIG.get("notifications", {}))
+        web_app.CONFIG["notifications"].update({
+            "strategy_signal_max_rows": 8,
+            "strategy_signal_sell_urgency_min_level": 2,
+        })
+        try:
+            buys, sells = web_app._collect_strategy_signal_rows(results, holdings)
+        finally:
+            web_app.CONFIG["notifications"].clear()
+            web_app.CONFIG["notifications"].update(old_notifications)
+
+        self.assertEqual(buys, [])
+        self.assertEqual([r["code"] for r in sells], ["111111"])
 
     def test_holdings_realtime_marks_signal_changes_without_feishu_side_effect(self):
         cached_signal = {"action": "sell", "label": "卖出"}

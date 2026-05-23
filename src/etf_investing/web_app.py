@@ -25,6 +25,7 @@ from .strategy import (
     backtest_model,
     compute_indicators,
     compute_sell_signals,
+    evaluate_portfolio_exit,
     get_backtest_scheme_config,
     get_portfolio_strategy_config,
     get_selection_model,
@@ -344,12 +345,71 @@ def _save_json_list(path, codes: list):
     path.write_text(json.dumps(unique, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _holding_record_from_value(value: Any) -> dict | None:
+    if isinstance(value, str):
+        code = _normalize_code(value)
+        return {"code": code} if _valid_code(code) else None
+    if not isinstance(value, dict):
+        return None
+    code = _normalize_code(value.get("code", ""))
+    if not _valid_code(code):
+        return None
+    record = dict(value)
+    record["code"] = code
+    for key in ("entry_price", "peak_price", "soft_days"):
+        if record.get(key) in ("", None):
+            record.pop(key, None)
+    return record
+
+
+def _load_holding_records() -> list[dict]:
+    try:
+        data = json.loads(_HOLDINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    seen = set()
+    for item in data:
+        record = _holding_record_from_value(item)
+        if not record or record["code"] in seen:
+            continue
+        seen.add(record["code"])
+        out.append(record)
+    return out
+
+
+def _save_holding_records(records: list[dict]) -> None:
+    out: list[dict] = []
+    seen = set()
+    for item in records:
+        record = _holding_record_from_value(item)
+        if not record or record["code"] in seen:
+            continue
+        seen.add(record["code"])
+        clean = {"code": record["code"]}
+        for key in ("entry_price", "entry_date", "peak_price", "soft_days", "added_at", "updated_at"):
+            if key in record and record.get(key) not in (None, ""):
+                clean[key] = record[key]
+        out.append(clean)
+    _HOLDINGS_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _load_holdings() -> list:
+    records = _load_holding_records()
+    if records:
+        return [record["code"] for record in records]
     return _load_json_list(_HOLDINGS_FILE)
 
 
 def _save_holdings(codes: list):
-    _save_json_list(_HOLDINGS_FILE, codes)
+    records = [_holding_record_from_value(code) for code in codes]
+    _save_holding_records([record for record in records if record])
+
+
+def _holding_records_by_code() -> dict[str, dict]:
+    return {record["code"]: record for record in _load_holding_records()}
 
 
 def _load_signal_state() -> dict:
@@ -372,6 +432,34 @@ def _sell_signal_label(sell: dict | None) -> str:
     return str(sell.get("urgency") or "暂无数据")
 
 
+def _c3_sell_level(exit_signal: dict | None) -> int:
+    if not isinstance(exit_signal, dict):
+        return -1
+    if exit_signal.get("should_sell"):
+        priority = str(exit_signal.get("priority") or "")
+        if priority in {"hard_stop_loss", "trailing_stop", "profit_protection", "strong_sell"}:
+            return 3
+        return 2
+    if exit_signal.get("priority") == "soft_watch":
+        return 1
+    return 0
+
+
+def _c3_sell_label(exit_signal: dict | None) -> str:
+    if not isinstance(exit_signal, dict):
+        return "暂无数据"
+    if exit_signal.get("should_sell"):
+        return str(exit_signal.get("reason") or "C3卖出")
+    priority = str(exit_signal.get("priority") or "")
+    if priority == "soft_watch":
+        return "软退出观察"
+    if priority == "missing_entry":
+        return "缺少买入价"
+    if priority == "inactive":
+        return "未启用C3"
+    return "C3持有"
+
+
 def _normalize_signal_label(label: Any) -> str | None:
     if label is None:
         return None
@@ -391,16 +479,24 @@ def _annotate_holding_signal_changes(rows: list[dict], previous_state: dict | No
         code = str(row.get("code") or "")
         trade_label = _trade_signal_label(row.get("trade_signal"))
         sell_label = _sell_signal_label(row.get("sell_signals"))
+        c3_label = _c3_sell_label(row.get("c3_exit_signal"))
         old = previous_state.get(code, {}) if isinstance(previous_state.get(code), dict) else {}
         changes: list[dict] = []
         old_trade = _normalize_signal_label(old.get("trade_signal_label"))
         old_sell = _normalize_signal_label(old.get("sell_signal_label"))
+        old_c3 = _normalize_signal_label(old.get("c3_sell_label"))
         if old_trade is not None and old_trade != trade_label:
             changes.append({"field": "模型信号", "from": old_trade, "to": trade_label})
         if old_sell is not None and old_sell != sell_label:
             changes.append({"field": "卖出信号", "from": old_sell, "to": sell_label})
+        if old_c3 is not None and old_c3 != c3_label:
+            changes.append({"field": "C3卖出", "from": old_c3, "to": c3_label})
         row["signal_changes"] = changes
-        next_state[code] = {"trade_signal_label": trade_label, "sell_signal_label": sell_label}
+        next_state[code] = {
+            "trade_signal_label": trade_label,
+            "sell_signal_label": sell_label,
+            "c3_sell_label": c3_label,
+        }
         if changes:
             changed_rows.append(row)
     return rows, next_state, changed_rows
@@ -820,9 +916,10 @@ def _trade_action(row: dict) -> str:
 def _sell_urgency_level(row: dict) -> int:
     sell = row.get("sell_signals") if isinstance(row.get("sell_signals"), dict) else {}
     try:
-        return int(sell.get("urgency_level"))
+        sell_level = int(sell.get("urgency_level"))
     except Exception:
-        return -1
+        sell_level = -1
+    return max(sell_level, _c3_sell_level(row.get("c3_exit_signal")))
 
 
 def _rank_score_key(row: dict) -> tuple:
@@ -1057,29 +1154,102 @@ def api_remove_watchlist(code):
 
 @app.route("/api/holdings")
 def api_get_holdings():
-    return jsonify({"holdings": _load_holdings()})
+    records = _load_holding_records()
+    if records:
+        return jsonify({"holdings": [record["code"] for record in records], "holding_records": records})
+    return jsonify({"holdings": _load_holdings(), "holding_records": []})
 
 
 @app.route("/api/holdings/toggle", methods=["POST"])
 def api_toggle_holding():
-    code = _normalize_code((request.json or {}).get("code", ""))
+    payload = request.get_json(silent=True) or {}
+    code = _normalize_code(payload.get("code", ""))
     if not _valid_code(code):
         return jsonify({"ok": False}), 400
-    holdings = _load_holdings()
-    if code in holdings:
-        holdings.remove(code)
+    records = _load_holding_records()
+    by_code = {record["code"]: record for record in records}
+    if code in by_code:
+        records = [record for record in records if record["code"] != code]
         added = False
     else:
-        holdings.append(code)
+        now_text = now_str("timestamp_format")
+        entry_price = _safe_float(payload.get("entry_price"), None)
+        peak_price = _safe_float(payload.get("peak_price"), entry_price)
+        record = {
+            "code": code,
+            "added_at": now_text,
+            "updated_at": now_text,
+            "entry_date": str(payload.get("entry_date") or today_str()),
+            "soft_days": 0,
+        }
+        if entry_price and entry_price > 0:
+            record["entry_price"] = round(entry_price, 4)
+            record["peak_price"] = round(max(float(peak_price or entry_price), entry_price), 4)
+        records.append(record)
         added = True
-    _save_holdings(holdings)
-    return jsonify({"ok": True, "added": added, "holdings": holdings})
+    _save_holding_records(records)
+    holdings = [record["code"] for record in records]
+    return jsonify({"ok": True, "added": added, "holdings": holdings, "holding_records": records})
+
+
+@app.route("/api/holdings/<code>", methods=["PATCH"])
+def api_update_holding(code: str):
+    code = _normalize_code(code)
+    if not _valid_code(code):
+        return jsonify({"ok": False, "error": "invalid_code"}), 400
+    payload = request.get_json(silent=True) or {}
+    records = _load_holding_records()
+    by_code = {record["code"]: dict(record) for record in records}
+    if code not in by_code:
+        return jsonify({"ok": False, "error": "holding_not_found"}), 404
+
+    record = by_code[code]
+    entry_price = _safe_float(payload.get("entry_price"), None)
+    peak_price = _safe_float(payload.get("peak_price"), None)
+    if entry_price is not None:
+        if entry_price <= 0:
+            return jsonify({"ok": False, "error": "entry_price_must_be_positive"}), 400
+        record["entry_price"] = round(entry_price, 4)
+        if peak_price is None or peak_price <= 0:
+            peak_price = entry_price
+    if peak_price is not None:
+        if peak_price <= 0:
+            return jsonify({"ok": False, "error": "peak_price_must_be_positive"}), 400
+        if record.get("entry_price"):
+            peak_price = max(float(peak_price), float(record["entry_price"]))
+        record["peak_price"] = round(peak_price, 4)
+    if payload.get("entry_date") not in (None, ""):
+        record["entry_date"] = str(payload.get("entry_date"))
+    if payload.get("soft_days") not in (None, ""):
+        try:
+            record["soft_days"] = max(0, int(payload.get("soft_days")))
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_soft_days"}), 400
+    record["updated_at"] = now_str("timestamp_format")
+
+    updated = [by_code.get(item["code"], item) for item in records]
+    _save_holding_records(updated)
+    return jsonify({
+        "ok": True,
+        "holdings": [item["code"] for item in updated],
+        "holding_records": updated,
+        "holding": record,
+    })
 
 
 def _build_holdings_realtime_rows(*, update_signal_state: bool = True) -> tuple[list[dict], str | None]:
     holdings = _load_holdings()
     if not holdings:
         return [], None
+
+    holding_records = _load_holding_records()
+    holding_by_code = {record["code"]: dict(record) for record in holding_records}
+    persist_holding_records = bool(holding_records) and set(holding_by_code).issuperset(set(holdings))
+    try:
+        active_strategy, active_strategy_cfg = get_portfolio_strategy_config()
+    except Exception:
+        active_strategy, active_strategy_cfg = "legacy_single_symbol", {"strategy_type": "single_symbol"}
+    is_portfolio_rotation = active_strategy_cfg.get("strategy_type") == "portfolio_rotation"
 
     watchlist = _load_watchlist()
     refreshed_rows = _refresh_cached_rows_for_codes(holdings + watchlist)
@@ -1125,12 +1295,96 @@ def _build_holdings_realtime_rows(*, update_signal_state: bool = True) -> tuple[
         cached_row = row_map.get(code, {})
         m = meta.get(code, {})
         price = q.get("price", 0)
+        price_float = _safe_float(price, 0) or 0
+        holding_record = holding_by_code.get(code, {"code": code})
+        entry_price = _safe_float(holding_record.get("entry_price"), None)
+        old_peak_price = _safe_float(holding_record.get("peak_price"), entry_price)
+        peak_candidates = [v for v in (old_peak_price, entry_price, price_float) if v and v > 0]
+        peak_price = max(peak_candidates) if peak_candidates else None
+        try:
+            soft_days = int(holding_record.get("soft_days") or 0)
+        except Exception:
+            soft_days = 0
 
         # 卖出信号（使用全市场扫描时缓存的历史 K 线）
         if code in etf_map:
             sell = compute_sell_signals(etf_map[code], realtime_price=price)
         else:
             sell = {"signals": [], "urgency": "暂无数据", "urgency_level": -1}
+
+        if not is_portfolio_rotation:
+            c3_exit_signal = {
+                "strategy": active_strategy,
+                "should_sell": False,
+                "reason": "当前策略未启用 C3",
+                "priority": "inactive",
+                "soft_days": soft_days,
+                "metrics": {},
+            }
+        elif not entry_price or entry_price <= 0:
+            c3_exit_signal = {
+                "strategy": active_strategy,
+                "should_sell": False,
+                "reason": "缺少买入价",
+                "priority": "missing_entry",
+                "soft_days": soft_days,
+                "metrics": {
+                    "entry_price": None,
+                    "peak_price": peak_price,
+                    "hold_days": 0,
+                },
+            }
+        elif code not in etf_map:
+            c3_exit_signal = {
+                "strategy": active_strategy,
+                "should_sell": False,
+                "reason": "历史数据不足",
+                "priority": "missing_history",
+                "soft_days": soft_days,
+                "metrics": {
+                    "entry_price": entry_price,
+                    "peak_price": peak_price,
+                    "return_pct": ((price_float - entry_price) / entry_price * 100) if price_float > 0 else 0,
+                    "hold_days": 0,
+                },
+            }
+        else:
+            try:
+                c3_exit_signal = evaluate_portfolio_exit(
+                    etf_map[code],
+                    entry_price=entry_price,
+                    peak_price=peak_price,
+                    entry_date=holding_record.get("entry_date"),
+                    current_date=today_str(),
+                    soft_days=soft_days,
+                    strategy_name=active_strategy,
+                    strategy_config=active_strategy_cfg,
+                    realtime_price=price_float,
+                )
+            except Exception as exc:
+                c3_exit_signal = {
+                    "strategy": active_strategy,
+                    "should_sell": False,
+                    "reason": f"C3计算失败：{exc}",
+                    "priority": "error",
+                    "soft_days": soft_days,
+                    "metrics": {},
+                }
+
+        metrics = c3_exit_signal.get("metrics") if isinstance(c3_exit_signal.get("metrics"), dict) else {}
+        metric_peak_price = _safe_float(metrics.get("peak_price"), peak_price)
+        if metric_peak_price and metric_peak_price > 0:
+            peak_price = metric_peak_price
+        try:
+            soft_days = int(c3_exit_signal.get("soft_days", soft_days) or 0)
+        except Exception:
+            soft_days = 0
+
+        if persist_holding_records and code in holding_by_code:
+            if peak_price and peak_price > 0:
+                holding_by_code[code]["peak_price"] = round(float(peak_price), 4)
+            holding_by_code[code]["soft_days"] = soft_days
+            holding_by_code[code]["updated_at"] = now_str("timestamp_format")
 
         data.append({
             "code":         code,
@@ -1154,7 +1408,18 @@ def _build_holdings_realtime_rows(*, update_signal_state: bool = True) -> tuple[
             "portfolio_buy_candidate": cached_row.get("portfolio_buy_candidate"),
             "signal_sort":  cached_row.get("signal_sort"),
             "sell_signals": sell,
+            "holding":      holding_record,
+            "entry_price":   entry_price,
+            "entry_date":    holding_record.get("entry_date"),
+            "peak_price":    peak_price,
+            "soft_days":     soft_days,
+            "c3_exit_signal": c3_exit_signal,
+            "c3_sell_label": _c3_sell_label(c3_exit_signal),
+            "c3_sell_level": _c3_sell_level(c3_exit_signal),
         })
+
+    if persist_holding_records:
+        _save_holding_records(list(holding_by_code.values()))
 
     if update_signal_state:
         previous_state = _load_signal_state()
