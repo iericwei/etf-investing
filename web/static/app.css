@@ -59,6 +59,32 @@ body {
   justify-content: center;
   gap: 8px;
 }
+.strategy-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.strategy-label {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.strategy-select {
+  min-width: 260px;
+  max-width: min(32vw, 360px);
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(29,40,51,.88);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+}
+.strategy-select:focus {
+  border-color: rgba(87,166,255,.72);
+}
 .header-actions {
   display: flex;
   align-items: center;
@@ -146,7 +172,8 @@ body {
 .market-summary {
   display: grid;
   grid-template-columns: minmax(520px, 1fr) minmax(480px, 520px);
-  gap: 28px;
+  /* gap: 28px; */
+  gap: 2px;
   padding: 1px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -201,7 +228,7 @@ body {
   min-height: 62px;
   padding: 8px 10px;
   background: rgba(23,33,43,.72);
-  border: 1px solid rgba(38,49,61,.72);
+  /* border: 1px solid rgba(38,49,61,.72); */
 }
 .index-card:nth-child(1) { border-radius: 6px 0 0 6px; }
 .index-card:nth-child(2), .index-card:nth-child(3) { border-radius: 0; }
@@ -760,6 +787,8 @@ tr.group-header td::before {
   }
   .header-left { flex: 1 1 auto; min-width: 250px; }
   .header-center { order: 5; flex: 1 1 100%; justify-content: flex-start; }
+  .strategy-switcher { width: 100%; }
+  .strategy-select { flex: 1 1 auto; min-width: 0; max-width: none; }
   .header-actions { margin-left: auto; }
   .update-time, .backtest-chip { font-size: 11px; }
   .market-summary {
@@ -789,6 +818,8 @@ tr.group-header td::before {
   .header-left { justify-content: space-between; }
   .header-chips { flex-wrap: wrap; justify-content: flex-end; }
   .header-center { flex-wrap: wrap; }
+  .strategy-switcher { width: 100%; }
+  .strategy-select { flex: 1 1 auto; min-width: 0; max-width: none; }
   .header-actions { justify-content: stretch; }
   .header-actions .btn { flex: 1 1 0; }
   .logo { font-size: 16px; }

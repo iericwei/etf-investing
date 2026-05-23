@@ -1,12 +1,13 @@
 """
 数据获取层
-  历史日K  : 腾讯财经（主）→ mootdx（备）
-  实时行情  : mootdx（主） → 腾讯财经（备）
+  历史日K  : mootdx → FUTU OpenD → 腾讯财经 → 东方财富
+  实时行情  : mootdx → FUTU OpenD → 腾讯财经 → 东方财富
 """
 
 import re
 import json
 import logging
+import math
 import random
 import shlex
 import threading
@@ -53,6 +54,57 @@ def detect_market(code: str):
     if code.startswith(("5", "6", "9")):
         return 1, "sh"
     return 0, "sz"
+
+
+def _futu_symbol(code: str) -> str:
+    _, prefix = detect_market(str(code).zfill(6))
+    return f"{prefix.upper()}.{str(code).zfill(6)}"
+
+
+def _normalize_futu_code(value: str) -> str:
+    return str(value or "").split(".")[-1].zfill(6)[-6:]
+
+
+def _futu_quote_context():
+    try:
+        import futu as ft
+    except Exception as e:
+        logger.debug(f"[futu] futu-api 不可用: {e}")
+        return None, None
+    try:
+        ctx = ft.OpenQuoteContext(
+            host=CONFIG.get("futu", {}).get("host", "127.0.0.1"),
+            port=int(CONFIG.get("futu", {}).get("port", 11111)),
+        )
+        return ft, ctx
+    except Exception as e:
+        logger.debug(f"[futu] OpenD 连接失败: {e}")
+        return ft, None
+
+
+def _futu_call_result(ret_tuple):
+    if not isinstance(ret_tuple, tuple) or len(ret_tuple) < 2:
+        return None, None, None
+    ret = ret_tuple[0]
+    data = ret_tuple[1]
+    page_req_key = ret_tuple[2] if len(ret_tuple) > 2 else None
+    return ret, data, page_req_key
+
+
+def _is_ret_ok(ft, ret) -> bool:
+    return ret == getattr(ft, "RET_OK", 0)
+
+
+def _clean_number(value, default: float = 0.0) -> float:
+    number = _parse_float(value, default)
+    if number is None:
+        return default
+    try:
+        if math.isnan(float(number)):
+            return default
+    except Exception:
+        return default
+    return float(number)
 
 
 # ── 历史日 K ──────────────────────────────────────────────────────────
@@ -118,13 +170,102 @@ def _history_mootdx(code: str, days: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _history_futu(code: str, days: int) -> pd.DataFrame:
+    ft, ctx = _futu_quote_context()
+    if not ft or not ctx:
+        return pd.DataFrame()
+    try:
+        end = datetime.now().date()
+        start = end - timedelta(days=max(int(days) * 2, int(days) + 20))
+        ret, raw, _ = _futu_call_result(ctx.request_history_kline(
+            _futu_symbol(code),
+            start=start.isoformat(),
+            end=end.isoformat(),
+            ktype=getattr(ft.KLType, "K_DAY", "K_DAY"),
+            autype=getattr(getattr(ft, "AuType", object), "QFQ", "qfq"),
+            max_count=max(int(days) + 20, 100),
+        ))
+        if not _is_ret_ok(ft, ret) or raw is None or raw.empty:
+            logger.debug(f"[futu_hist] {code}: {raw}")
+            return pd.DataFrame()
+        df = raw.rename(columns={"time_key": "date"})
+        keep = [c for c in ["date", "open", "high", "low", "close", "volume"] if c in df.columns]
+        if len(keep) < 6:
+            return pd.DataFrame()
+        df = df[keep].copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        for col in ["open", "high", "low", "close", "volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df.dropna(subset=["date", "close"]).sort_values("date").tail(days).reset_index(drop=True)
+    except Exception as e:
+        logger.debug(f"[futu_hist] {code}: {e}")
+        return pd.DataFrame()
+    finally:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+
+
+def _history_eastmoney(code: str, days: int) -> pd.DataFrame:
+    params = {
+        "secid": _eastmoney_secid(code),
+        "klt": "101",
+        "fqt": "1",
+        "lmt": str(max(int(days), 1)),
+        "end": "20500101",
+        "iscca": "1",
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57",
+    }
+    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    try:
+        session = requests.Session()
+        session.trust_env = False
+        r = session.get(
+            url,
+            params=params,
+            headers=request_headers("eastmoney"),
+            timeout=CONFIG["network"]["timeouts"].get("eastmoney_intraday", 8),
+        )
+        r.raise_for_status()
+        klines = (r.json().get("data") or {}).get("klines") or []
+        rows = []
+        for line in klines:
+            parts = str(line).split(",")
+            if len(parts) < 6:
+                continue
+            rows.append({
+                "date": parts[0],
+                "open": _clean_number(parts[1]),
+                "close": _clean_number(parts[2]),
+                "high": _clean_number(parts[3]),
+                "low": _clean_number(parts[4]),
+                "volume": _clean_number(parts[5]),
+            })
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        return df.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
+    except Exception as e:
+        logger.debug(f"[eastmoney_hist] {code}: {e}")
+        return pd.DataFrame()
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 def fetch_history(code: str, days: int | None = None) -> pd.DataFrame:
-    """获取历史日 K（腾讯优先，失败降级 mootdx），最少需要配置要求条数"""
+    """获取历史日 K：mootdx → FUTU OpenD → 腾讯 → 东方财富。"""
     days = days or int(CONFIG["selection"]["history_days"])
-    df = _history_tencent(code, days)
-    if df.empty:
-        df = _history_mootdx(code, days)
-    return df
+    for fetcher in (_history_mootdx, _history_futu, _history_tencent, _history_eastmoney):
+        df = fetcher(code, days)
+        if not df.empty:
+            return df
+    return pd.DataFrame()
 
 
 def fetch_all_history(pool: list, days: int | None = None, workers: int | None = None) -> Dict[str, pd.DataFrame]:
@@ -653,11 +794,19 @@ def _requests_without_environment_proxy():
 
 def fetch_etf_15m_history(code: str, days: int = 35) -> pd.DataFrame:
     """
-    通过东方财富 push2his 接口获取 ETF 15 分钟分时行情。
+    获取 ETF 15 分钟分时行情：FUTU OpenD → 东方财富。
 
     返回列: datetime, date, time, open, close, high, low, volume, amount。
-    东方财富接口不可用时返回空 DataFrame，调用方保持原有日 K 回测逻辑。
+    上游接口不可用时返回空 DataFrame，调用方保持原有日 K 回测逻辑。
     """
+    try:
+        from .market_data import fetch_futu_intraday_history
+
+        futu = fetch_futu_intraday_history(code, period="15", days=days)
+        if not futu.df.empty:
+            return futu.df
+    except Exception as e:
+        logger.debug(f"[futu_15m] {code}: {e}")
     return fetch_eastmoney_intraday_history(code, period="15", days=days)
 
 
@@ -745,6 +894,55 @@ def _realtime_mootdx(codes: List[str]) -> Dict[str, dict]:
         return {}
 
 
+def _realtime_futu(codes: List[str]) -> Dict[str, dict]:
+    if not codes:
+        return {}
+    ft, ctx = _futu_quote_context()
+    if not ft or not ctx:
+        return {}
+    try:
+        ret, raw, _ = _futu_call_result(ctx.get_market_snapshot([_futu_symbol(code) for code in codes]))
+        if not _is_ret_ok(ft, ret) or raw is None or raw.empty:
+            logger.debug(f"[futu_rt]: {raw}")
+            return {}
+        out: Dict[str, dict] = {}
+        for _, row in raw.iterrows():
+            code = _normalize_futu_code(row.get("code", ""))
+            price = _clean_number(row.get("last_price"))
+            prev = _clean_number(row.get("prev_close_price"))
+            change_pct = _parse_float(row.get("change_rate"))
+            if change_pct is None:
+                change_pct = (price - prev) / prev * 100 if prev > 0 else 0
+            out[code] = {
+                "price":      price,
+                "prev_close": prev,
+                "change_pct": change_pct,
+                "volume":     int(_clean_number(row.get("volume"))),
+                "amount":     _clean_number(row.get("turnover")),
+                "name":       row.get("stock_name") or row.get("name") or code,
+                "source":     "futu",
+            }
+            for src_key, dst_key in (
+                ("open_price", "open"),
+                ("high_price", "high"),
+                ("low_price", "low"),
+                ("turnover_rate", "turnover"),
+            ):
+                if src_key in row and pd.notna(row.get(src_key)):
+                    out[code][dst_key] = _clean_number(row.get(src_key))
+            if row.get("update_time"):
+                out[code]["updated"] = str(row.get("update_time"))
+        return out
+    except Exception as e:
+        logger.debug(f"[futu_rt]: {e}")
+        return {}
+    finally:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+
+
 def _realtime_tencent(codes: List[str]) -> Dict[str, dict]:
     if not codes:
         return {}
@@ -767,9 +965,63 @@ def _realtime_tencent(codes: List[str]) -> Dict[str, dict]:
         return {}
 
 
+def _realtime_eastmoney(codes: List[str]) -> Dict[str, dict]:
+    if not codes:
+        return {}
+    secids = ",".join(f"{detect_market(code)[0]}.{str(code).zfill(6)}" for code in codes)
+    params = {
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2",
+        "invt": "2",
+        "secids": secids,
+        "fields": "f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18,f20,f21",
+    }
+    try:
+        session = requests.Session()
+        session.trust_env = False
+        r = session.get(
+            "https://push2.eastmoney.com/api/qt/ulist.np/get",
+            params=params,
+            headers=request_headers("eastmoney"),
+            timeout=CONFIG["network"]["timeouts"].get("eastmoney_universe", 15),
+        )
+        r.raise_for_status()
+        rows = (r.json().get("data") or {}).get("diff") or []
+        out: Dict[str, dict] = {}
+        for row in rows:
+            code = str(row.get("f12") or "").zfill(6)
+            price = _clean_number(row.get("f2"))
+            prev = _clean_number(row.get("f18"))
+            out[code] = {
+                "price":      price,
+                "prev_close": prev,
+                "change_pct": _clean_number(row.get("f3")),
+                "change_amt": _clean_number(row.get("f4")),
+                "volume":     int(_clean_number(row.get("f5"))),
+                "amount":     _clean_number(row.get("f6")),
+                "name":       row.get("f14") or code,
+                "open":       _clean_number(row.get("f17")),
+                "high":       _clean_number(row.get("f15")),
+                "low":        _clean_number(row.get("f16")),
+                "source":     "eastmoney",
+            }
+            fund_size = _clean_number(row.get("f20"))
+            if fund_size > 0:
+                out[code]["fund_size"] = fund_size
+        return out
+    except Exception as e:
+        logger.debug(f"[eastmoney_rt]: {e}")
+        return {}
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 def fetch_realtime(codes: List[str], batch_size: int | None = None) -> Dict[str, dict]:
     """
-    获取实时行情（mootdx 优先，未覆盖的降级腾讯）
+    获取实时行情（mootdx → FUTU OpenD → 腾讯 → 东方财富）
     大批量时自动分批，避免单次请求过大
     """
     if not codes:
@@ -780,8 +1032,10 @@ def fetch_realtime(codes: List[str], batch_size: int | None = None) -> Dict[str,
     for i in range(0, len(codes), batch_size):
         batch = codes[i: i + batch_size]
         batch_rt = _realtime_mootdx(batch)
-        missing = [c for c in batch if c not in batch_rt]
-        if missing:
-            batch_rt.update(_realtime_tencent(missing))
+        for fetcher in (_realtime_futu, _realtime_tencent, _realtime_eastmoney):
+            missing = [c for c in batch if c not in batch_rt]
+            if not missing:
+                break
+            batch_rt.update(fetcher(missing))
         result.update(batch_rt)
     return result

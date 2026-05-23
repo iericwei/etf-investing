@@ -1,3 +1,4 @@
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -23,11 +24,40 @@ def make_history(start=10.0, step=0.2, days=40):
     })
 
 
+def make_eric_candidate_history(days=60):
+    closes = [10 + i * 0.04 + math.sin(i * 0.65) * 0.22 for i in range(days)]
+    return pd.DataFrame({
+        "close": closes,
+        "high": [c * 1.01 for c in closes],
+        "low": [c * 0.99 for c in closes],
+        "volume": [1000 + i * 5 for i in range(days)],
+    })
+
+
 class StrategyModelConfigTests(unittest.TestCase):
     def test_default_config_declares_active_selection_model(self):
         self.assertIn("models", CONFIG)
         self.assertEqual(CONFIG["models"]["active_selection_model"], "multi_factor_v1")
         self.assertIn("multi_factor_v1", CONFIG["models"]["selection"])
+
+    def test_default_config_declares_eric_c3_portfolio_strategy(self):
+        self.assertEqual(CONFIG["models"]["active_portfolio_strategy"], "eric_c3_rotation")
+        self.assertEqual(CONFIG["models"]["active_backtest_scheme"], "eric_c3_four_window")
+        self.assertIn("legacy_single_symbol", CONFIG["models"]["portfolio"])
+        self.assertIn("eric_c3_rotation", CONFIG["models"]["portfolio"])
+
+        active, cfg = etf_strategy.get_portfolio_strategy_config()
+        self.assertEqual(active, "eric_c3_rotation")
+        self.assertEqual(cfg["display_name"], "Eric C3 Rotation（艾瑞克C3 四窗口轮动）")
+        self.assertEqual(cfg["backtest_scheme"], "eric_c3_four_window")
+        self.assertEqual(cfg["max_positions"], 5)
+        self.assertEqual(cfg["trade_windows"], ["09:35", "11:30", "13:05", "14:45"])
+        self.assertEqual(cfg["entry"]["min_selection_score"], 72)
+
+        scheme_name, scheme = etf_strategy.get_backtest_scheme_config()
+        self.assertEqual(scheme_name, "eric_c3_four_window")
+        self.assertEqual(scheme["signal_model"], "eric_c3_rotation")
+        self.assertEqual(scheme["trade_windows"], ["09:35", "11:30", "13:05", "14:45"])
 
     def test_score_all_uses_configured_factor_weights(self):
         etf_map = {
@@ -83,6 +113,56 @@ class StrategyModelConfigTests(unittest.TestCase):
         etf_map = {item["code"]: make_history() for item in pool}
         results = etf_strategy.select_top(pool, etf_map, {}, top_n=1, model_name="reverse_code_test")
         self.assertEqual(results[0]["code"], "ZZZ")
+        self.assertEqual(results[0]["portfolio_strategy"]["name"], "eric_c3_rotation")
+        self.assertIn("eligible", results[0]["portfolio_entry"])
+
+    def test_eric_c3_entry_accepts_strong_candidate_and_blocks_low_score(self):
+        df = make_eric_candidate_history()
+
+        strong = etf_strategy.evaluate_portfolio_entry(
+            df,
+            selection_score=80,
+            strategy_name="eric_c3_rotation",
+        )
+        self.assertTrue(strong["eligible"], strong["blocked_reasons"])
+        self.assertGreaterEqual(strong["buy_score"], 6)
+        self.assertLessEqual(strong["sell_level"], 1)
+
+        low_score = etf_strategy.evaluate_portfolio_entry(
+            df,
+            selection_score=60,
+            strategy_name="eric_c3_rotation",
+        )
+        self.assertFalse(low_score["eligible"])
+        self.assertTrue(any("横截面评分不足" in reason for reason in low_score["blocked_reasons"]))
+
+        after_monthly_lock = etf_strategy.evaluate_portfolio_entry(
+            df,
+            selection_score=75,
+            strategy_name="eric_c3_rotation",
+            monthly_return_pct=12,
+        )
+        self.assertFalse(after_monthly_lock["eligible"])
+        self.assertEqual(after_monthly_lock["required_selection_score"], 79)
+
+    def test_eric_c3_exit_uses_hard_stop_loss(self):
+        closes = [10.0] * 59 + [9.4]
+        df = pd.DataFrame({
+            "close": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "volume": [1000 + i * 5 for i in range(len(closes))],
+        })
+
+        result = etf_strategy.evaluate_portfolio_exit(
+            df,
+            entry_price=10.0,
+            peak_price=10.4,
+            strategy_name="eric_c3_rotation",
+        )
+        self.assertTrue(result["should_sell"])
+        self.assertEqual(result["priority"], "hard_stop_loss")
+        self.assertLessEqual(result["metrics"]["return_pct"], -5.5)
 
 
 if __name__ == "__main__":

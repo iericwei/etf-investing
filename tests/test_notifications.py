@@ -38,32 +38,77 @@ class NotificationConfigTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["msg_type"], "text")
         self.assertTrue(calls[0][1]["content"]["text"].startswith("QUANT"))
 
-    def test_format_holding_change_message_includes_before_and_after_labels(self):
-        text = notifications.format_holding_change_message([{
-            "code": "111111",
-            "name": "测试ETF",
-            "signal_changes": [
-                {"field": "模型信号", "from": "持有", "to": "卖出"},
-                {"field": "卖出信号", "from": "持有", "to": "建议卖出"},
-            ],
-        }])
+    def test_active_trade_windows_use_default_portfolio_strategy(self):
+        windows = notifications.active_trade_windows({
+            "models": {
+                "active_portfolio_strategy": "demo",
+                "active_backtest_scheme": "fallback",
+                "portfolio": {"demo": {"trade_windows": ["14:45", "09:35"]}},
+                "backtest": {"fallback": {"trade_time": "14:50"}},
+            }
+        })
 
+        self.assertEqual(windows, ["09:35", "14:45"])
+
+    def test_due_strategy_windows_fire_once_inside_lead_window(self):
+        cfg = {
+            "notifications": {"strategy_signal_enabled": True, "strategy_signal_lead_minutes": 8},
+            "models": {
+                "active_portfolio_strategy": "demo",
+                "portfolio": {"demo": {"trade_windows": ["09:35", "14:45"]}},
+                "backtest": {},
+            },
+        }
+
+        due = notifications.due_strategy_windows(
+            now=datetime(2026, 5, 20, 9, 30),
+            state={},
+            is_trading_day=True,
+            config=cfg,
+        )
+        skipped = notifications.due_strategy_windows(
+            now=datetime(2026, 5, 20, 9, 30),
+            state={"strategy_signal_slots": {"2026-05-20 09:35": {"sent": True}}},
+            is_trading_day=True,
+            config=cfg,
+        )
+
+        self.assertEqual(due, ["09:35"])
+        self.assertEqual(skipped, [])
+
+    def test_format_strategy_signal_message_contains_action_guidance(self):
+        text = notifications.format_strategy_signal_message(
+            window="14:45",
+            generated_at=datetime(2026, 5, 20, 14, 37),
+            holdings_count=2,
+            buy_rows=[{
+                "code": "111111",
+                "name": "测试ETF",
+                "rank": 1,
+                "score": 88,
+                "price": 1.234,
+                "ret5": 3.21,
+                "rsi": 61.2,
+                "trade_signal": {"buy_signals": [{"name": "均线多头"}]},
+            }],
+            sell_rows=[{
+                "code": "222222",
+                "name": "风险ETF",
+                "rank": 2,
+                "price": 2.345,
+                "ret5": -4.56,
+                "rsi": 78.5,
+                "sell_signals": {"urgency": "高风险", "signals": [{"name": "跌破均线"}]},
+            }],
+            config={"notifications": {"strategy_signal_lead_minutes": 8}},
+        )
+
+        self.assertIn("交易窗口 14:45", text)
+        self.assertIn("操作指引", text)
+        self.assertIn("买入候选", text)
+        self.assertIn("卖出/减仓", text)
         self.assertIn("111111 测试ETF", text)
-        self.assertIn("模型信号：由「持有」变为「卖出」", text)
-        self.assertIn("卖出信号：由「持有」变为「建议卖出」", text)
-
-    def test_watch_reminder_sends_once_per_trading_day_at_before_close_time(self):
-        sent = []
-        now = datetime(2026, 5, 20, 14, 45)
-        with patch.object(notifications, "send_feishu_text", side_effect=lambda text, webhook_url=None: sent.append(text) or True), \
-             patch.object(notifications, "_today_key", return_value="2026-05-20"):
-            first = notifications.maybe_send_watch_reminder(now=now, is_trading_day=True, state={})
-            second = notifications.maybe_send_watch_reminder(now=now, is_trading_day=True, state={"last_watch_reminder_date": "2026-05-20"})
-
-        self.assertTrue(first)
-        self.assertFalse(second)
-        self.assertEqual(len(sent), 1)
-        self.assertTrue(sent[0].startswith("看盘提醒"))
+        self.assertIn("222222 风险ETF", text)
 
 
 if __name__ == "__main__":

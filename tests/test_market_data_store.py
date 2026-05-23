@@ -52,7 +52,7 @@ class MarketDataStoreTests(unittest.TestCase):
     def test_fetch_current_intraday_falls_back_to_futu_when_current_source_empty(self):
         futu_df = pd.DataFrame(
             {
-                "datetime": [pd.Timestamp("2026-05-19 14:45:00")],
+                "datetime": [pd.Timestamp("2026-05-23 14:45:00")],
                 "time": ["14:45"],
                 "open": [1.0],
                 "close": [1.1],
@@ -74,7 +74,7 @@ class MarketDataStoreTests(unittest.TestCase):
         store = self.make_store()
         fetched = pd.DataFrame(
             {
-                "datetime": [pd.Timestamp("2026-05-19 14:45:00")],
+                "datetime": [pd.Timestamp("2026-05-23 14:45:00")],
                 "time": ["14:45"],
                 "open": [1.0],
                 "close": [1.1],
@@ -163,7 +163,26 @@ class MarketDataStoreTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         build_pool.assert_called_once()
-        backfill.assert_called_once_with(["513180", "159915"], period="5", days=30)
+        backfill.assert_called_once_with(["513180", "159915"], period="5", days=30, start_date=None, end_date=None)
+
+    def test_backfill_cli_accepts_date_range(self):
+        with patch.object(backfill_intraday, "backfill_intraday_history", return_value={"success": True}) as backfill, \
+             patch.object(sys, "argv", [
+                 "backfill_intraday.py",
+                 "--codes", "513180,159915",
+                 "--start-date", "2026-05-18",
+                 "--end-date", "2026-05-20",
+             ]):
+            exit_code = backfill_intraday.main()
+
+        self.assertEqual(exit_code, 0)
+        backfill.assert_called_once_with(
+            ["513180", "159915"],
+            period="5",
+            days=30,
+            start_date=date(2026, 5, 18),
+            end_date=date(2026, 5, 20),
+        )
 
     def test_build_model_selected_pool_uses_full_market_model_results(self):
         universe = [{"code": "513180", "name": "A"}, {"code": "159915", "name": "B"}]
@@ -247,6 +266,48 @@ class MarketDataStoreTests(unittest.TestCase):
             market_data.backfill_intraday_history(["513180", "159915", "510300"], period="5", days=30, store=store, futu_batch_size=2, futu_pause_seconds=12.5)
 
         sleep.assert_called_once_with(12.5)
+
+    def test_backfill_intraday_history_accepts_date_range(self):
+        store = self.make_store()
+        futu_df = pd.DataFrame(
+            {
+                "datetime": [
+                    pd.Timestamp("2026-05-17 14:45:00"),
+                    pd.Timestamp("2026-05-18 14:45:00"),
+                    pd.Timestamp("2026-05-20 14:45:00"),
+                    pd.Timestamp("2026-05-21 14:45:00"),
+                ],
+                "time": ["14:45", "14:45", "14:45", "14:45"],
+                "open": [1.0, 1.1, 1.2, 1.3],
+                "close": [1.05, 1.15, 1.25, 1.35],
+                "high": [1.1, 1.2, 1.3, 1.4],
+                "low": [0.9, 1.0, 1.1, 1.2],
+                "volume": [100, 200, 300, 400],
+                "amount": [1000, 2000, 3000, 4000],
+            }
+        )
+        with patch.object(market_data, "fetch_futu_intraday_history", return_value=market_data.IntradayFetchResult(futu_df, "futu")) as fetch_futu, \
+             patch.object(market_data, "fetch_eastmoney_intraday_history") as fetch_em:
+            result = market_data.backfill_intraday_history(
+                ["513180"],
+                period="5",
+                start_date=date(2026, 5, 18),
+                end_date=date(2026, 5, 20),
+                store=store,
+            )
+
+        fetch_futu.assert_called_once_with("513180", period="5", start_date=date(2026, 5, 18), end_date=date(2026, 5, 20))
+        fetch_em.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["start_date"], "2026-05-18")
+        self.assertEqual(result["end_date"], "2026-05-20")
+        self.assertEqual(result["total_rows"], 2)
+        loaded = store.load_intraday("513180", "5", date(2026, 5, 1), date(2026, 5, 31))
+        self.assertEqual(len(loaded), 2)
+        self.assertEqual({row.date() for row in loaded["date"]}, {date(2026, 5, 18), date(2026, 5, 20)})
+        logs = store.recent_logs(limit=1)
+        self.assertEqual(logs[0]["endpoint"], "backfill_range")
+        self.assertEqual(logs[0]["days"], 3)
 
     def test_manual_date_backfill_saves_only_requested_date_from_futu(self):
         store = self.make_store()

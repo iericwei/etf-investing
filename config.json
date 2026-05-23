@@ -93,11 +93,13 @@
     "_comment_auto_refresh_end_minute": "自动刷新结束时间，按当天 0 点后的分钟数表示。905 = 15:05。"
   },
   "models": {
-    "_comment": "模型配置。active_selection_model 指定当前选股模型；active_backtest_scheme 指定当前回测方案。models.selection / models.backtest 下可扩展多个方案。",
+    "_comment": "模型配置。active_selection_model 指定当前选股模型；active_backtest_scheme 指定当前回测方案；active_portfolio_strategy 指定当前组合策略。models.selection / models.backtest / models.portfolio 下可扩展多个方案。",
     "active_selection_model": "multi_factor_v1",
     "_comment_active_selection_model": "当前启用的选股模型名称，需对应 models.selection 下的 key。",
-    "active_backtest_scheme": "before_close_15m",
+    "active_backtest_scheme": "eric_c3_four_window",
     "_comment_active_backtest_scheme": "当前启用的回测方案名称，需对应 models.backtest 下的 key。",
+    "active_portfolio_strategy": "eric_c3_rotation",
+    "_comment_active_portfolio_strategy": "当前启用的组合策略名称，需对应 models.portfolio 下的 key；改为 legacy_single_symbol 可回到现有单标的信号方案。",
     "selection": {
       "_comment": "选股模型参数集合。新增模型时在这里增加配置，并在 etf_strategy.py 注册模型类。",
       "multi_factor_v1": {
@@ -143,14 +145,88 @@
       }
     },
     "backtest": {
-      "_comment": "回测方案集合。当前项目只有日 K 数据，收盘前 15 分钟方案用当日收盘价作为 14:45 附近成交价的近似。",
+      "_comment": "回测方案集合。legacy 使用收盘前 15 分钟单窗口；Eric C3 使用四窗口入场/退出规则，分时缺失时用日 K 收盘价近似。",
       "before_close_15m": {
         "_comment": "买卖点统一设定在 A 股 ETF 收盘前 15 分钟，即 14:45。",
         "display_name": "收盘前15分钟",
         "window_days": 22,
         "trade_time": "14:45",
         "trade_timing_label": "收盘前15分钟",
-        "execution_price": "close"
+        "execution_price": "close",
+        "signal_model": "legacy_single_symbol"
+      },
+      "eric_c3_four_window": {
+        "_comment": "Eric C3 Rotation 专属回测：09:35 / 11:30 / 13:05 / 14:45 四窗口依次评估 C3 入场和退出。",
+        "display_name": "Eric C3 四窗口回测",
+        "window_days": 44,
+        "trade_time": "14:45",
+        "trade_windows": ["09:35", "11:30", "13:05", "14:45"],
+        "trade_timing_label": "四窗口",
+        "execution_price": "intraday_5m_close",
+        "signal_model": "eric_c3_rotation",
+        "selection_score_fallback": 100
+      }
+    },
+    "portfolio": {
+      "_comment": "组合层策略集合。legacy_single_symbol 保留现有单标的信号；eric_c3_rotation 是 Eric C3 四窗口组合轮动策略。",
+      "legacy_single_symbol": {
+        "_comment": "现有方案：榜单按 multi_factor_v1 排序，单标的买卖信号由 compute_trade_signal / compute_sell_signals 输出。",
+        "display_name": "现有单标的信号",
+        "strategy_type": "single_symbol",
+        "selection_model": "multi_factor_v1",
+        "backtest_scheme": "before_close_15m"
+      },
+      "eric_c3_rotation": {
+        "_comment": "Eric C3 Rotation（艾瑞克C3 四窗口轮动）：最多持有 5 只 ETF，每只标的每天最多 1 次动作，每天总动作最多 3 次。",
+        "display_name": "Eric C3 Rotation（艾瑞克C3 四窗口轮动）",
+        "strategy_type": "portfolio_rotation",
+        "selection_model": "multi_factor_v1",
+        "backtest_scheme": "eric_c3_four_window",
+        "trade_windows": ["09:35", "11:30", "13:05", "14:45"],
+        "max_positions": 5,
+        "target_weight": 0.2,
+        "max_daily_actions": 3,
+        "max_daily_sells": 2,
+        "max_daily_buys": 2,
+        "one_action_per_symbol_per_day": true,
+        "entry": {
+          "_comment": "强入场阈值：横截面评分 + 技术信号 + 趋势/量能/波动过滤。",
+          "min_selection_score": 72,
+          "min_buy_score": 6,
+          "max_sell_level": 1,
+          "require_price_above_ma10": true,
+          "require_ma5_gt_ma10_gt_ma20": true,
+          "min_ma20_slope5_pct": 0,
+          "min_ret10_pct": 3.5,
+          "max_ret10_pct": 24,
+          "min_ret20_pct": 5,
+          "min_rsi": 45,
+          "max_rsi": 76,
+          "min_vol_ratio": 0.9,
+          "max_vol_ratio": 4,
+          "max_annualized_volatility_pct": 80
+        },
+        "exit": {
+          "_comment": "退出优先级：硬止损、移动止盈、利润保护、强风险、软退出确认、时间止损。",
+          "hard_stop_loss_pct": -5.5,
+          "trailing_stop_pct": 8.5,
+          "profit_protect_min_profit_pct": 10,
+          "profit_protect_drawdown_pct": 4,
+          "strong_sell_level": 3,
+          "soft_sell_level": 2,
+          "soft_confirmation_days": 2,
+          "soft_grace_days": 3,
+          "soft_min_buy_score": 4,
+          "soft_ret5_floor_pct": -3,
+          "time_stop_days": 20,
+          "time_stop_min_return_pct": 2
+        },
+        "monthly_guard": {
+          "_comment": "月度保护：达到目标收益后提高新买门槛，回撤过深时停止新开仓。",
+          "profit_lock_return_pct": 10,
+          "profit_lock_score_add": 7,
+          "drawdown_stop_return_pct": -6
+        }
       }
     }
   }

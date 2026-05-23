@@ -1,5 +1,6 @@
 import sys
 import unittest
+import copy
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,40 @@ from etf_investing.web_app import _group_by_target, _target_group_name
 
 
 class WebTargetGroupingTests(unittest.TestCase):
+    def test_strategy_endpoint_switches_portfolio_strategy_and_backtest_scheme(self):
+        old_models = copy.deepcopy(web_app.CONFIG["models"])
+        with web_app._lock:
+            old_cache = dict(web_app._cache)
+            old_backtest = dict(web_app._backtest_state)
+        try:
+            with patch.object(web_app, "_ensure_fresh") as ensure:
+                res = web_app.app.test_client().post("/api/strategy", json={"strategy": "legacy_single_symbol"})
+
+            self.assertEqual(res.status_code, 200)
+            payload = res.get_json()
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["strategy"]["active"], "legacy_single_symbol")
+            self.assertEqual(web_app.CONFIG["models"]["active_portfolio_strategy"], "legacy_single_symbol")
+            self.assertEqual(web_app.CONFIG["models"]["active_backtest_scheme"], "before_close_15m")
+            ensure.assert_called_once_with(force=True)
+        finally:
+            web_app.CONFIG["models"].clear()
+            web_app.CONFIG["models"].update(old_models)
+            with web_app._lock:
+                web_app._cache.clear()
+                web_app._cache.update(old_cache)
+                web_app._backtest_state.clear()
+                web_app._backtest_state.update(old_backtest)
+
+    def test_config_endpoint_exposes_strategy_options(self):
+        res = web_app.app.test_client().get("/api/config")
+
+        self.assertEqual(res.status_code, 200)
+        strategy = res.get_json()["strategy"]
+        names = {item["name"] for item in strategy["options"]}
+        self.assertIn("eric_c3_rotation", names)
+        self.assertIn("legacy_single_symbol", names)
+
     def test_target_group_name_strips_etf_and_issuer_suffix(self):
         self.assertEqual(_target_group_name("半导体设备ETF国泰"), "半导体设备")
         self.assertEqual(_target_group_name("半导体设备ETF招商"), "半导体设备")
@@ -190,7 +225,30 @@ class WebTargetGroupingTests(unittest.TestCase):
         self.assertEqual(payload["data"][0]["short_name"], "上证")
         self.assertEqual(payload["data"][2]["change_pct"], -0.21)
 
-    def test_holdings_realtime_marks_signal_changes_and_notifies_feishu(self):
+    def test_collect_strategy_signal_rows_prioritizes_buy_and_holding_sells(self):
+        results = [
+            {"code": "111111", "rank": 2, "score": 80, "trade_signal": {"action": "buy"}},
+            {"code": "222222", "rank": 1, "score": 90, "trade_signal": {"action": "hold"}},
+            {"code": "333333", "rank": 3, "score": 70, "trade_signal": {"action": "sell"}},
+        ]
+        holdings = [
+            {"code": "222222", "rank": 1, "trade_signal": {"action": "hold"}, "sell_signals": {"urgency_level": 3}},
+        ]
+        old_notifications = dict(web_app.CONFIG.get("notifications", {}))
+        web_app.CONFIG["notifications"].update({
+            "strategy_signal_max_rows": 8,
+            "strategy_signal_sell_urgency_min_level": 2,
+        })
+        try:
+            buys, sells = web_app._collect_strategy_signal_rows(results, holdings)
+        finally:
+            web_app.CONFIG["notifications"].clear()
+            web_app.CONFIG["notifications"].update(old_notifications)
+
+        self.assertEqual([r["code"] for r in buys], ["111111"])
+        self.assertEqual([r["code"] for r in sells], ["222222", "333333"])
+
+    def test_holdings_realtime_marks_signal_changes_without_feishu_side_effect(self):
         cached_signal = {"action": "sell", "label": "卖出"}
         old_state = {
             "111111": {
@@ -220,9 +278,7 @@ class WebTargetGroupingTests(unittest.TestCase):
             row = res.get_json()["data"][0]
             self.assertEqual(row["signal_changes"][0], {"field": "模型信号", "from": "观望", "to": "卖出"})
             self.assertEqual(row["signal_changes"][1], {"field": "卖出信号", "from": "低风险", "to": "高风险"})
-            notify.assert_called_once()
-            self.assertIn("模型信号：由「观望」变为「卖出」", notify.call_args.args[0])
-            self.assertIn("卖出信号：由「低风险」变为「高风险」", notify.call_args.args[0])
+            notify.assert_not_called()
             saved = save_state.call_args.args[0]
             self.assertEqual(saved["111111"]["trade_signal_label"], "卖出")
             self.assertEqual(saved["111111"]["sell_signal_label"], "高风险")

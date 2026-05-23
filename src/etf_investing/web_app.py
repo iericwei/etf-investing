@@ -21,19 +21,22 @@ from .config import BASE_DIR, CONFIG, app_base_url, now_str, request_headers, te
 from .universe import fetch_universe
 from .data import fetch_all_history, fetch_etf_15m_history, fetch_fund_nav_estimates, fetch_fund_quote_metrics, fetch_history, fetch_realtime
 from .strategy import (
+    apply_active_strategy_fields,
     backtest_model,
     compute_indicators,
     compute_sell_signals,
-    compute_trade_signal,
     get_backtest_scheme_config,
+    get_portfolio_strategy_config,
     get_selection_model,
     select_top,
 )
 from .notifications import (
+    NOTIFICATION_STATE_FILE,
     SIGNAL_STATE_FILE,
-    format_holding_change_message,
+    due_strategy_windows,
+    format_strategy_signal_message,
     load_json_state,
-    maybe_send_watch_reminder,
+    mark_strategy_window_done,
     save_json_state,
     send_feishu_text,
 )
@@ -65,6 +68,7 @@ _backtest_state = {
 }
 _lock = threading.Lock()
 _backtest_lock = threading.Lock()
+_strategy_signal_job_lock = threading.Lock()
 _scheduler_started = False
 _trade_dates_cache: dict[str, object] = {"loaded_at": 0.0, "dates": set()}
 
@@ -107,6 +111,70 @@ def _active_backtest_meta() -> dict:
             "trade_time": "14:45",
             "trade_timing_label": "收盘前15分钟",
         }
+
+
+def _strategy_options() -> list[dict]:
+    models_cfg = CONFIG.get("models", {})
+    options = []
+    for name, cfg in (models_cfg.get("portfolio", {}) or {}).items():
+        if str(name).startswith("_comment") or not isinstance(cfg, dict):
+            continue
+        options.append({
+            "name": name,
+            "display_name": cfg.get("display_name", name),
+            "strategy_type": cfg.get("strategy_type", ""),
+            "backtest_scheme": cfg.get("backtest_scheme"),
+        })
+    return options
+
+
+def _active_strategy_meta() -> dict:
+    try:
+        name, cfg = get_portfolio_strategy_config()
+        scheme = cfg.get("backtest_scheme")
+        return {
+            "active": name,
+            "display_name": cfg.get("display_name", name),
+            "strategy_type": cfg.get("strategy_type", ""),
+            "backtest_scheme": scheme,
+            "options": _strategy_options(),
+        }
+    except Exception as exc:
+        return {
+            "active": "legacy_single_symbol",
+            "display_name": "现有单标的信号",
+            "strategy_type": "single_symbol",
+            "backtest_scheme": "before_close_15m",
+            "error": str(exc),
+            "options": _strategy_options(),
+        }
+
+
+def _set_active_strategy(name: str) -> dict:
+    active, cfg = get_portfolio_strategy_config(name)
+    models_cfg = CONFIG.setdefault("models", {})
+    models_cfg["active_portfolio_strategy"] = active
+    if cfg.get("backtest_scheme"):
+        models_cfg["active_backtest_scheme"] = cfg["backtest_scheme"]
+    return _active_strategy_meta()
+
+
+def _invalidate_strategy_outputs() -> None:
+    with _lock:
+        _cache.update(
+            status="idle",
+            results=None,
+            timestamp=None,
+            date=None,
+            error=None,
+            etf_map={},
+        )
+        _backtest_state.update(
+            status="idle",
+            timestamp=None,
+            date=None,
+            error=None,
+        )
 
 
 def _load_china_trade_dates() -> set[date] | None:
@@ -338,13 +406,10 @@ def _annotate_holding_signal_changes(rows: list[dict], previous_state: dict | No
     return rows, next_state, changed_rows
 
 
-def _format_holding_change_message(rows: list[dict]) -> str:
-    return format_holding_change_message(rows)
-
-
 def _notify_holding_signal_changes(rows: list[dict]) -> None:
-    if rows:
-        send_feishu_text(_format_holding_change_message(rows))
+    # Feishu delivery is handled by the strategy-window scheduler. The UI still
+    # receives signal_changes, but holdings refreshes should not generate ad hoc alerts.
+    return None
 
 
 def _load_watchlist() -> list:
@@ -414,8 +479,7 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
         if premium_rate_pct is None:
             premium_rate_pct = round((float(price) / estimate_nav - 1) * 100, 2) if estimate_nav > 0 and price else None
         fund_size = float(quote_info.get("fund_size") or m.get("fund_size") or 0)
-        trade_signal = compute_trade_signal(enriched[code], realtime_price=float(price or 0))
-        rows.append({
+        item = {
             "rank":            rank_start + offset,
             "code":            code,
             "name":            rt.get("name") or m.get("name", code),
@@ -440,14 +504,12 @@ def _build_rows_for_codes(codes: list[str], etf_map: dict, realtime: dict, meta:
             "technical_score": float(row["technical_score"]),
             "trend_score":     float(row.get("trend_score", 0)),
             "model":           model.name,
-            "trade_signal":    trade_signal,
-            "buy_signal":      trade_signal["action"] == "buy",
-            "sell_signal":     trade_signal["action"] == "sell",
-            "signal_sort":     {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2),
             "backtest":        None,
             "backtest_return_pct": None,
             "is_custom":       True,
-        })
+        }
+        apply_active_strategy_fields(item, enriched[code], realtime_price=float(price or 0))
+        rows.append(item)
     return rows
 
 
@@ -713,6 +775,7 @@ def _run_backtest_async(force: bool = False):
                         window=window_days,
                         intraday=None if intraday.empty else intraday,
                         code=code,
+                        selection_score=_safe_float(r.get("score"), None),
                     )
                     r["backtest"] = bt
                     r["backtest_return_pct"] = bt["return_pct"]
@@ -745,11 +808,137 @@ def _is_after_close_now() -> bool:
     return now.hour * 60 + now.minute >= close_minute
 
 
+def _data_rows(rows: list[dict] | None) -> list[dict]:
+    return [r for r in (rows or []) if isinstance(r, dict) and not r.get("_is_group_header")]
+
+
+def _trade_action(row: dict) -> str:
+    sig = row.get("trade_signal") if isinstance(row.get("trade_signal"), dict) else {}
+    return str(sig.get("action") or "").lower()
+
+
+def _sell_urgency_level(row: dict) -> int:
+    sell = row.get("sell_signals") if isinstance(row.get("sell_signals"), dict) else {}
+    try:
+        return int(sell.get("urgency_level"))
+    except Exception:
+        return -1
+
+
+def _rank_score_key(row: dict) -> tuple:
+    rank = row.get("rank")
+    try:
+        rank_value = int(rank)
+    except Exception:
+        rank_value = 10**9
+    return (rank_value, -float(row.get("score") or 0))
+
+
+def _unique_rows(rows: list[dict], limit: int) -> list[dict]:
+    out: list[dict] = []
+    seen = set()
+    for row in rows:
+        code = str(row.get("code") or "")
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _collect_strategy_signal_rows(results: list[dict], holdings_rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    cfg = CONFIG.get("notifications", {})
+    limit = int(cfg.get("strategy_signal_max_rows", 8))
+    min_sell_level = int(cfg.get("strategy_signal_sell_urgency_min_level", 2))
+    rows = _data_rows(results)
+    holding_codes = {str(r.get("code")) for r in holdings_rows if r.get("code")}
+
+    buy_candidates = [
+        r for r in rows
+        if _trade_action(r) == "buy"
+    ]
+    buy_candidates.sort(key=_rank_score_key)
+
+    holding_sells = [
+        r for r in holdings_rows
+        if _trade_action(r) == "sell" or _sell_urgency_level(r) >= min_sell_level
+    ]
+    holding_sells.sort(key=lambda r: (-_sell_urgency_level(r), _rank_score_key(r)))
+
+    model_sells = [
+        r for r in rows
+        if str(r.get("code")) not in holding_codes and _trade_action(r) == "sell"
+    ]
+    model_sells.sort(key=_rank_score_key)
+
+    return _unique_rows(buy_candidates, limit), _unique_rows(holding_sells + model_sells, limit)
+
+
+def _run_strategy_signal_window(window: str, scheduled_at: datetime | None = None) -> bool:
+    if not _strategy_signal_job_lock.acquire(blocking=False):
+        return False
+    scheduled_at = scheduled_at or datetime.now()
+    try:
+        with _lock:
+            _cache["status"] = "loading"
+        _run_selection()
+        with _lock:
+            if _cache.get("status") != "ready":
+                return False
+            results = [dict(r) for r in (_cache.get("results") or [])]
+
+        holdings_rows, _ = _build_holdings_realtime_rows(update_signal_state=False)
+        buy_rows, sell_rows = _collect_strategy_signal_rows(results, holdings_rows)
+        signal_count = len(buy_rows) + len(sell_rows)
+        notify_no_signal = bool(CONFIG.get("notifications", {}).get("strategy_signal_notify_no_signal", False))
+        state = load_json_state(NOTIFICATION_STATE_FILE)
+
+        sent = False
+        if signal_count or notify_no_signal:
+            text = format_strategy_signal_message(
+                window=window,
+                generated_at=datetime.now(),
+                buy_rows=buy_rows,
+                sell_rows=sell_rows,
+                holdings_count=len(holdings_rows),
+                config=CONFIG,
+            )
+            sent = send_feishu_text(text)
+
+        webhook_configured = bool(str(CONFIG.get("notifications", {}).get("feishu_webhook_url", "") or "").strip())
+        if sent or not signal_count or not webhook_configured:
+            mark_strategy_window_done(
+                state,
+                now=scheduled_at,
+                window=window,
+                sent=sent,
+                signal_count=signal_count,
+            )
+            save_json_state(NOTIFICATION_STATE_FILE, state)
+        return sent
+    finally:
+        _strategy_signal_job_lock.release()
+
+
+def _run_due_strategy_signal_windows(now: datetime) -> None:
+    state = load_json_state(NOTIFICATION_STATE_FILE)
+    due = due_strategy_windows(
+        now=now,
+        state=state,
+        is_trading_day=_is_china_trading_day(now.date()),
+        config=CONFIG,
+    )
+    for window in due:
+        threading.Thread(target=_run_strategy_signal_window, args=(window, now), daemon=True).start()
+
+
 def _backtest_scheduler_loop():
     while True:
         try:
             now = datetime.now()
-            maybe_send_watch_reminder(now=now, is_trading_day=_is_china_trading_day(now.date()))
+            _run_due_strategy_signal_windows(now)
             today = today_str()
             with _lock:
                 already = _backtest_state.get("last_auto_date") == today
@@ -786,6 +975,7 @@ def api_select():
             "universe_total": _cache["universe_total"],
             "scanned":        _cache["scanned"],
             "watchlist":      _load_watchlist(),
+            "strategy":       _active_strategy_meta(),
             "backtest":       dict(_backtest_state, **_active_backtest_meta()),
         })
 
@@ -808,6 +998,26 @@ def api_backtest_run():
 def api_backtest_status():
     with _lock:
         return jsonify(dict(_backtest_state, **_active_backtest_meta()))
+
+
+@app.route("/api/strategy")
+def api_strategy():
+    return jsonify({"strategy": _active_strategy_meta(), "backtest": dict(_backtest_state, **_active_backtest_meta())})
+
+
+@app.route("/api/strategy", methods=["POST"])
+def api_strategy_update():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("strategy") or payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "缺少策略名称"}), 400
+    try:
+        strategy = _set_active_strategy(name)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "strategy": _active_strategy_meta()}), 400
+    _invalidate_strategy_outputs()
+    _ensure_fresh(force=True)
+    return jsonify({"ok": True, "strategy": strategy, "backtest": dict(_backtest_state, **_active_backtest_meta())})
 
 
 @app.route("/api/watchlist")
@@ -866,15 +1076,10 @@ def api_toggle_holding():
     return jsonify({"ok": True, "added": added, "holdings": holdings})
 
 
-@app.route("/api/holdings/realtime")
-def api_holdings_realtime():
-    """
-    持仓实时行情 + 卖出信号（每次调用均实时拉取行情，信号基于缓存历史数据计算）
-    """
-
+def _build_holdings_realtime_rows(*, update_signal_state: bool = True) -> tuple[list[dict], str | None]:
     holdings = _load_holdings()
     if not holdings:
-        return jsonify({"data": [], "timestamp": None})
+        return [], None
 
     watchlist = _load_watchlist()
     refreshed_rows = _refresh_cached_rows_for_codes(holdings + watchlist)
@@ -944,26 +1149,38 @@ def api_holdings_realtime():
             "backtest":     cached_row.get("backtest"),
             "backtest_return_pct": cached_row.get("backtest_return_pct"),
             "trade_signal": cached_row.get("trade_signal"),
+            "portfolio_strategy": cached_row.get("portfolio_strategy"),
+            "portfolio_entry": cached_row.get("portfolio_entry"),
+            "portfolio_buy_candidate": cached_row.get("portfolio_buy_candidate"),
             "signal_sort":  cached_row.get("signal_sort"),
             "sell_signals": sell,
         })
 
-    previous_state = _load_signal_state()
-    data, next_state, changed_rows = _annotate_holding_signal_changes(data, previous_state)
-    _save_signal_state(next_state)
-    _notify_holding_signal_changes(changed_rows)
+    if update_signal_state:
+        previous_state = _load_signal_state()
+        data, next_state, changed_rows = _annotate_holding_signal_changes(data, previous_state)
+        _save_signal_state(next_state)
+        _notify_holding_signal_changes(changed_rows)
 
-    return jsonify({
-        "data":      data,
-        "timestamp": now_str("timestamp_format"),
-    })
+    return data, now_str("timestamp_format")
+
+
+@app.route("/api/holdings/realtime")
+def api_holdings_realtime():
+    """
+    持仓实时行情 + 卖出信号（每次调用均实时拉取行情，信号基于缓存历史数据计算）
+    """
+    data, timestamp = _build_holdings_realtime_rows(update_signal_state=True)
+    return jsonify({"data": data, "timestamp": timestamp})
 
 
 # ── 前端页面 ────────────────────────────────────────────────────────────
 
 @app.route("/api/config")
 def api_config():
-    return jsonify(web_runtime_config())
+    cfg = web_runtime_config()
+    cfg["strategy"] = _active_strategy_meta()
+    return jsonify(cfg)
 
 
 @app.route("/api/market/status")

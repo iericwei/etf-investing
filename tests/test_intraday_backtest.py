@@ -244,7 +244,7 @@ class AkshareIntradayBacktestTests(unittest.TestCase):
             "amount": [100000, 123450],
         })
 
-        bt = etf_strategy.backtest_model(daily, window=22, intraday=intraday)
+        bt = etf_strategy.backtest_model(daily, window=22, intraday=intraday, scheme_name="before_close_15m")
 
         first_trade = bt["trade_points"][0]
         self.assertEqual(first_trade["time"], "14:45")
@@ -258,7 +258,7 @@ class AkshareIntradayBacktestTests(unittest.TestCase):
         closes = [10 + i * 0.08 for i in range(45)]
         daily = make_history(closes)
 
-        bt = etf_strategy.backtest_model(daily, window=22, intraday=pd.DataFrame())
+        bt = etf_strategy.backtest_model(daily, window=22, intraday=pd.DataFrame(), scheme_name="before_close_15m")
 
         first_trade = bt["trade_points"][0]
         self.assertEqual(first_trade["price_source"], "日k")
@@ -287,7 +287,7 @@ class AkshareIntradayBacktestTests(unittest.TestCase):
                  patch.object(web_app, "backtest_model", return_value={"return_pct": 1.23}) as run_model:
                 web_app._run_backtest_async(force=True)
 
-            fetch_15m.assert_called_once_with("513180", days=44)
+            fetch_15m.assert_called_once_with("513180", days=88)
             self.assertIs(run_model.call_args.kwargs["intraday"], intraday)
             self.assertEqual(run_model.call_args.kwargs["code"], "513180")
             with web_app._lock:

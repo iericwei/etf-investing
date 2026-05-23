@@ -40,7 +40,7 @@ class TradeSignalBacktestTests(unittest.TestCase):
     def test_backtest_model_returns_one_month_strategy_return(self):
         closes = [10 + i * 0.08 for i in range(45)]
         df = make_history(closes)
-        bt = etf_strategy.backtest_model(df, window=22)
+        bt = etf_strategy.backtest_model(df, window=22, scheme_name="before_close_15m")
 
         self.assertEqual(bt["window_days"], 22)
         self.assertIn("return_pct", bt)
@@ -50,7 +50,7 @@ class TradeSignalBacktestTests(unittest.TestCase):
     def test_backtest_model_exposes_curve_and_trade_points_for_tooltip(self):
         closes = [10 + i * 0.08 for i in range(45)]
         df = make_history(closes)
-        bt = etf_strategy.backtest_model(df, window=22)
+        bt = etf_strategy.backtest_model(df, window=22, scheme_name="before_close_15m")
 
         self.assertIn("curve", bt)
         self.assertIn("trade_points", bt)
@@ -67,7 +67,7 @@ class TradeSignalBacktestTests(unittest.TestCase):
     def test_backtest_model_uses_before_close_15m_scheme(self):
         closes = [10 + i * 0.08 for i in range(45)]
         df = make_history(closes)
-        bt = etf_strategy.backtest_model(df)
+        bt = etf_strategy.backtest_model(df, scheme_name="before_close_15m")
 
         self.assertEqual(bt["scheme"], "before_close_15m")
         self.assertEqual(bt["scheme_display_name"], "收盘前15分钟")
@@ -76,6 +76,16 @@ class TradeSignalBacktestTests(unittest.TestCase):
         self.assertGreater(len(bt["trade_points"]), 0)
         self.assertEqual(bt["trade_points"][0]["time"], "14:45")
         self.assertIn("收盘前15分钟", bt["trade_points"][0]["label"])
+
+    def test_backtest_model_defaults_to_eric_c3_four_window_scheme(self):
+        closes = [10 + i * 0.04 + ((i % 6) - 2) * 0.02 for i in range(65)]
+        df = make_history(closes)
+        bt = etf_strategy.backtest_model(df, selection_score=90)
+
+        self.assertEqual(bt["scheme"], "eric_c3_four_window")
+        self.assertEqual(bt["scheme_display_name"], "Eric C3 四窗口回测")
+        self.assertEqual(bt["trade_windows"], ["09:35", "11:30", "13:05", "14:45"])
+        self.assertEqual(bt["trade_timing_label"], "四窗口")
 
     def test_select_top_adds_backtest_return_to_every_listed_symbol(self):
         pool = [{"code": f"AAA{i:02d}", "name": f"ETF{i}", "category": "测试"} for i in range(12)]
@@ -117,7 +127,13 @@ class TradeSignalBacktestTests(unittest.TestCase):
 
         store = DummyStore()
         with patch.object(etf_strategy, "fetch_futu_intraday_history") as futu:
-            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=store)
+            bt = etf_strategy.backtest_model(
+                df,
+                window=22,
+                scheme_name="before_close_15m",
+                code="513180",
+                market_data_store=store,
+            )
 
         self.assertFalse(futu.called)
         self.assertEqual(bt["execution_price"], "local")
@@ -149,7 +165,13 @@ class TradeSignalBacktestTests(unittest.TestCase):
         store = DummyStore()
         result = type("Result", (), {"df": futu_intraday, "source": "futu", "error": None})()
         with patch.object(etf_strategy, "fetch_futu_intraday_history", return_value=result) as futu:
-            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=store)
+            bt = etf_strategy.backtest_model(
+                df,
+                window=22,
+                scheme_name="before_close_15m",
+                code="513180",
+                market_data_store=store,
+            )
 
         futu.assert_called_once()
         self.assertEqual(store.saved, [("513180", "5", "futu", 1)])
@@ -171,7 +193,13 @@ class TradeSignalBacktestTests(unittest.TestCase):
 
         empty_result = type("Result", (), {"df": pd.DataFrame(), "source": "futu", "error": None})()
         with patch.object(etf_strategy, "fetch_futu_intraday_history", return_value=empty_result):
-            bt = etf_strategy.backtest_model(df, window=22, code="513180", market_data_store=DummyStore())
+            bt = etf_strategy.backtest_model(
+                df,
+                window=22,
+                scheme_name="before_close_15m",
+                code="513180",
+                market_data_store=DummyStore(),
+            )
 
         self.assertEqual(bt["execution_price"], "日k")
         first_trade = bt["trade_points"][0]
@@ -201,6 +229,7 @@ class TradeSignalBacktestTests(unittest.TestCase):
             bt = etf_strategy.backtest_model(
                 df,
                 window=22,
+                scheme_name="before_close_15m",
                 code="513180",
                 intraday=intraday,
                 market_data_store=store,

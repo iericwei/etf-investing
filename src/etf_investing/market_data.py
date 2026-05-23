@@ -245,11 +245,31 @@ def _today_rows(df: pd.DataFrame) -> pd.DataFrame:
     return copy[copy["datetime"].dt.normalize() == today].dropna(subset=["datetime"])
 
 
+def _date_range_rows(df: pd.DataFrame, start_date: date, end_date: date) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    copy = df.copy()
+    if "date" in copy.columns:
+        day_values = pd.to_datetime(copy["date"], errors="coerce").dt.date
+    elif "datetime" in copy.columns:
+        day_values = pd.to_datetime(copy["datetime"], errors="coerce").dt.date
+    else:
+        return pd.DataFrame()
+    mask = (day_values >= start_date) & (day_values <= end_date)
+    return copy.loc[mask].reset_index(drop=True)
+
+
 def fetch_current_intraday(code: str, period: str, days: int = 3) -> IntradayFetchResult:
-    """优先用现有行情接口获取当天分钟级数据；若当天为空，降级 FUTU。"""
+    """获取当天分钟级数据：FUTU OpenD → 东方财富。"""
     code = normalize_code(code)
     period = normalize_period(period)
     errors: list[str] = []
+
+    futu_result = fetch_futu_intraday_history(code, period=period, days=max(days, 1))
+    if not futu_result.df.empty:
+        return futu_result
+    if futu_result.error:
+        errors.append(futu_result.error)
 
     try:
         df = fetch_eastmoney_intraday_history(code, period=period, days=max(days, 1))
@@ -260,11 +280,6 @@ def fetch_current_intraday(code: str, period: str, days: int = 3) -> IntradayFet
     except Exception as e:
         errors.append(f"eastmoney 异常: {e}")
 
-    futu_result = fetch_futu_intraday_history(code, period=period, days=max(days, 1))
-    if not futu_result.df.empty:
-        return futu_result
-    if futu_result.error:
-        errors.append(futu_result.error)
     return IntradayFetchResult(pd.DataFrame(), "none", "; ".join(errors))
 
 
@@ -401,27 +416,57 @@ def backfill_intraday_history(
     period: str = DEFAULT_INTRADAY_PERIOD,
     *,
     days: int = 30,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
     store: MarketDataStore | None = None,
     futu_batch_size: int = 55,
     futu_pause_seconds: float = 31.0,
 ) -> dict:
-    """优先用 FUTU 回溯历史分时；FUTU 无数据时兼容回填当天行情。"""
+    """优先用 FUTU 回溯历史分时；支持按天数或显式日期段回填。"""
     store = store or MarketDataStore()
     period = normalize_period(period)
     days = max(int(days), 1)
+    range_start = date.fromisoformat(str(start_date)) if start_date is not None else None
+    range_end = date.fromisoformat(str(end_date)) if end_date is not None else None
+    if range_start is not None and range_end is None:
+        range_end = range_start
+    if range_end is not None and range_start is None:
+        range_start = range_end
+    if range_start is not None and range_end is not None and range_start > range_end:
+        raise ValueError("start_date 不能晚于 end_date")
+    use_date_range = range_start is not None and range_end is not None
     summary = {"success": True, "period": period, "days": days, "total_rows": 0, "items": []}
+    if use_date_range:
+        summary["start_date"] = range_start.isoformat()
+        summary["end_date"] = range_end.isoformat()
     normalized_codes = [normalize_code(code) for code in codes]
     for index, code in enumerate(normalized_codes):
         if index > 0 and futu_batch_size > 0 and index % futu_batch_size == 0 and futu_pause_seconds > 0:
             time.sleep(futu_pause_seconds)
-        fetched = fetch_futu_intraday_history(code, period=period, days=days)
-        endpoint = "backfill_history"
-        if fetched.df.empty:
-            fallback = fetch_current_intraday(code, period, days=3)
-            fetched = IntradayFetchResult(fallback.df, fallback.source, fetched.error or fallback.error)
-            endpoint = "backfill_today"
+        if use_date_range:
+            fetched = fetch_futu_intraday_history(code, period=period, start_date=range_start, end_date=range_end)
+            fetched = IntradayFetchResult(_date_range_rows(fetched.df, range_start, range_end), fetched.source, fetched.error)
+            endpoint = "backfill_range"
+            if fetched.df.empty:
+                fallback_days = max((datetime.now().date() - range_start).days + 1, 1)
+                try:
+                    eastmoney_df = fetch_eastmoney_intraday_history(code, period=period, days=fallback_days)
+                    eastmoney_rows = _date_range_rows(eastmoney_df, range_start, range_end)
+                    if not eastmoney_rows.empty:
+                        fetched = IntradayFetchResult(eastmoney_rows, "eastmoney", fetched.error)
+                except Exception as e:
+                    fetched = IntradayFetchResult(pd.DataFrame(), fetched.source, f"{fetched.error or ''}; eastmoney 异常: {e}".strip("; "))
+        else:
+            fetched = fetch_futu_intraday_history(code, period=period, days=days)
+            endpoint = "backfill_history"
+            if fetched.df.empty:
+                fallback = fetch_current_intraday(code, period, days=3)
+                fetched = IntradayFetchResult(fallback.df, fallback.source, fetched.error or fallback.error)
+                endpoint = "backfill_today"
         saved = store.save_intraday(code, period, fetched.df, fetched.source) if not fetched.df.empty else 0
         ok = saved > 0
+        if use_date_range and not ok and not fetched.error:
+            fetched = IntradayFetchResult(fetched.df, fetched.source, "日期段分时数据为空")
         item = {"code": code, "success": ok, "source": fetched.source, "rows": saved, "error": fetched.error}
         summary["items"].append(item)
         summary["total_rows"] += saved
@@ -429,11 +474,12 @@ def backfill_intraday_history(
             endpoint=endpoint,
             code=code,
             period=period,
-            days=days if endpoint == "backfill_history" else 1,
+            days=(range_end - range_start).days + 1 if use_date_range else (days if endpoint == "backfill_history" else 1),
             source=fetched.source,
             success=ok,
             rows=saved,
             error=fetched.error,
+            detail={"start_date": range_start.isoformat(), "end_date": range_end.isoformat()} if use_date_range else None,
         )
     summary["success"] = any(item["success"] for item in summary["items"])
     return summary

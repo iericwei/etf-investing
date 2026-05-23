@@ -65,7 +65,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
     "models": {
         "active_selection_model": "multi_factor_v1",
-        "active_backtest_scheme": "before_close_15m",
+        "active_backtest_scheme": "eric_c3_four_window",
+        "active_portfolio_strategy": "eric_c3_rotation",
         "selection": {
             "multi_factor_v1": {
                 "display_name": "多因子评分模型 v1",
@@ -110,7 +111,74 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "trade_time": "14:45",
                 "trade_timing_label": "收盘前15分钟",
                 "execution_price": "close",
+                "signal_model": "legacy_single_symbol",
+            },
+            "eric_c3_four_window": {
+                "display_name": "Eric C3 四窗口回测",
+                "window_days": 44,
+                "trade_time": "14:45",
+                "trade_windows": ["09:35", "11:30", "13:05", "14:45"],
+                "trade_timing_label": "四窗口",
+                "execution_price": "intraday_5m_close",
+                "signal_model": "eric_c3_rotation",
+                "selection_score_fallback": 100,
             }
+        },
+        "portfolio": {
+            "legacy_single_symbol": {
+                "display_name": "现有单标的信号",
+                "strategy_type": "single_symbol",
+                "selection_model": "multi_factor_v1",
+                "backtest_scheme": "before_close_15m",
+            },
+            "eric_c3_rotation": {
+                "display_name": "Eric C3 Rotation（艾瑞克C3 四窗口轮动）",
+                "strategy_type": "portfolio_rotation",
+                "selection_model": "multi_factor_v1",
+                "backtest_scheme": "eric_c3_four_window",
+                "trade_windows": ["09:35", "11:30", "13:05", "14:45"],
+                "max_positions": 5,
+                "target_weight": 0.2,
+                "max_daily_actions": 3,
+                "max_daily_sells": 2,
+                "max_daily_buys": 2,
+                "one_action_per_symbol_per_day": True,
+                "entry": {
+                    "min_selection_score": 72,
+                    "min_buy_score": 6,
+                    "max_sell_level": 1,
+                    "require_price_above_ma10": True,
+                    "require_ma5_gt_ma10_gt_ma20": True,
+                    "min_ma20_slope5_pct": 0,
+                    "min_ret10_pct": 3.5,
+                    "max_ret10_pct": 24,
+                    "min_ret20_pct": 5,
+                    "min_rsi": 45,
+                    "max_rsi": 76,
+                    "min_vol_ratio": 0.9,
+                    "max_vol_ratio": 4,
+                    "max_annualized_volatility_pct": 80,
+                },
+                "exit": {
+                    "hard_stop_loss_pct": -5.5,
+                    "trailing_stop_pct": 8.5,
+                    "profit_protect_min_profit_pct": 10,
+                    "profit_protect_drawdown_pct": 4,
+                    "strong_sell_level": 3,
+                    "soft_sell_level": 2,
+                    "soft_confirmation_days": 2,
+                    "soft_grace_days": 3,
+                    "soft_min_buy_score": 4,
+                    "soft_ret5_floor_pct": -3,
+                    "time_stop_days": 20,
+                    "time_stop_min_return_pct": 2,
+                },
+                "monthly_guard": {
+                    "profit_lock_return_pct": 10,
+                    "profit_lock_score_add": 7,
+                    "drawdown_stop_return_pct": -6,
+                },
+            },
         }
     },
     "server": {
@@ -123,8 +191,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "notifications": {
         "feishu_webhook_url": "",
-        "watch_reminder_minute": 14 * 60 + 45,
-        "watch_reminder_enabled": True,
+        "strategy_signal_enabled": True,
+        "strategy_signal_lead_minutes": 8,
+        "strategy_signal_max_rows": 8,
+        "strategy_signal_sell_urgency_min_level": 2,
+        "strategy_signal_notify_no_signal": False,
     },
     "time": {
         "date_format": "%Y-%m-%d",

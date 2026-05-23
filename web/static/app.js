@@ -6,6 +6,11 @@ let APP_CONFIG = {
   autoRefreshIntervalMs: 600000,
   autoRefreshStartMinute: 565,
   autoRefreshEndMinute: 905,
+  strategy: {
+    active: 'eric_c3_rotation',
+    display_name: 'Eric C3 Rotation（艾瑞克C3 四窗口轮动）',
+    options: [],
+  },
 };
 
 async function loadRuntimeConfig() {
@@ -14,6 +19,7 @@ async function loadRuntimeConfig() {
     if (!res.ok) return;
     const cfg = await res.json();
     APP_CONFIG = Object.assign(APP_CONFIG, cfg || {});
+    syncStrategySelector(APP_CONFIG.strategy);
   } catch (_) {}
 }
 const CAT_COLORS = {
@@ -45,7 +51,7 @@ const SORT_LABELS = {
   ret3: '3日',
   ret5: '5日',
   ret10: '10日',
-  backtest_return_pct: '回测1月',
+  backtest_return_pct: '策略回测',
   score: '评分',
   rsi: 'RSI',
   vol_ratio: '量比',
@@ -72,6 +78,20 @@ function moneyYi(v) {
 }
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+}
+function syncStrategySelector(strategy) {
+  const sel = document.getElementById('strategySelect');
+  if (!sel) return;
+  const st = strategy || APP_CONFIG.strategy || {};
+  const options = Array.isArray(st.options) ? st.options : [];
+  if (options.length) {
+    sel.innerHTML = options.map(opt =>
+      `<option value="${esc(opt.name)}" ${opt.name === st.active ? 'selected' : ''}>${esc(opt.display_name || opt.name)}</option>`
+    ).join('');
+  }
+  if (st.active) sel.value = st.active;
+  sel.disabled = false;
+  APP_CONFIG.strategy = Object.assign({}, APP_CONFIG.strategy || {}, st);
 }
 function quoteMarketPrefix(code) {
   const c = String(code == null ? '' : code).trim();
@@ -505,7 +525,7 @@ async function refreshHoldings() {
             <th>代码</th><th>名称</th>
             <th class="r">实时价</th><th class="r">涨跌幅</th><th class="r">5日</th>
             <th class="r">RSI</th><th class="r">成交额</th><th style="text-align:center">榜单</th>
-            <th class="r" title="收盘前15分钟方案">回测1月</th>
+            <th class="r" title="当前策略绑定的回测方案">策略回测</th>
             <th style="text-align:center">模型信号</th>
             <th style="text-align:center">卖出信号</th>
             <th style="text-align:center">操作</th>
@@ -803,6 +823,7 @@ function render(data, preserveActiveCat = false) {
   document.getElementById('sTop').textContent      = Number.isFinite(topScore) ? topScore.toFixed(1) : '—';
   setDataStatus(data.timestamp ? '实时：更新于 ' + data.timestamp : '实时', 'ok');
   if (data.date)      document.getElementById('dateChip').textContent   = data.date;
+  if (data.strategy) syncStrategySelector(data.strategy);
   updateBacktestStatus(data.backtest);
   refreshMarketIndices();
 
@@ -843,6 +864,7 @@ async function poll() {
   try {
     const res  = await fetch('/api/select');
     const data = await res.json();
+    if (data.strategy) syncStrategySelector(data.strategy);
     if (data.backtest) updateBacktestStatus(data.backtest);
     if (data.status === 'ready') {
       clearInterval(_timer); _timer = null;
@@ -882,6 +904,30 @@ async function doRefresh() {
   document.getElementById('btnRefresh').disabled = true;
   await fetch('/api/refresh').catch(()=>{});
   startPolling();
+}
+
+async function switchStrategy(name) {
+  if (!name || name === (APP_CONFIG.strategy || {}).active) return;
+  const sel = document.getElementById('strategySelect');
+  if (sel) sel.disabled = true;
+  setDataStatus('切换策略…', 'warn');
+  try {
+    const res = await fetch('/api/strategy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({strategy: name}),
+    });
+    const payload = await res.json();
+    if (!res.ok || !payload.ok) throw new Error(payload.error || '策略切换失败');
+    syncStrategySelector(payload.strategy);
+    if (payload.backtest) updateBacktestStatus(payload.backtest);
+    startPolling();
+  } catch (e) {
+    alert(e.message || '策略切换失败');
+    syncStrategySelector(APP_CONFIG.strategy);
+    if (sel) sel.disabled = false;
+    setDataStatus('实时', '');
+  }
 }
 
 async function runBacktest() {

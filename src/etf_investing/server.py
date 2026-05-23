@@ -1,12 +1,12 @@
 """
-ETF 实时行情本地服务（mootdx + 腾讯财经 双数据源）
+ETF 实时行情本地服务
 
 特性：
-  1. 优先使用 mootdx（通达信原生协议，速度快、无频次限制）
-  2. 失败自动降级到腾讯财经 HTTP 接口
+  1. 实时行情优先级：mootdx → FUTU OpenD → 腾讯财经 → 东方财富
+  2. 失败自动逐级降级
   3. 内置 5 秒缓存，避免重复请求
   4. CORS 已开启，可被 claude.ai 的前端直接调用
-  5. 分时行情：东方财富历史分钟 K + FUTU OpenAPI 当天分时接口
+  5. 分时行情：FUTU OpenAPI + 东方财富历史分钟 K
 
 依赖安装：
   pip install mootdx flask flask-cors requests akshare futu-api
@@ -37,7 +37,7 @@ from typing import List, Dict
 import requests
 import pandas as pd
 from .config import CONFIG, app_base_url, now_str, request_headers, tencent_realtime_url
-from .data import fetch_eastmoney_intraday_history
+from .data import _realtime_eastmoney, _realtime_futu, fetch_eastmoney_intraday_history
 from .market_data import IntradayFetchResult, fetch_futu_today_intraday_history
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -114,6 +114,38 @@ def fetch_via_mootdx(codes: List[str]) -> List[Dict]:
 TENCENT_HEADERS = request_headers("tencent")
 
 
+def _quote_map_to_list(quotes: Dict[str, dict]) -> List[Dict]:
+    results = []
+    for code, quote in quotes.items():
+        price = float(quote.get("price") or 0)
+        prev = float(quote.get("prev_close") or 0)
+        change_amt = float(quote.get("change_amt", price - prev if prev > 0 else 0) or 0)
+        change_pct = float(quote.get("change_pct") or 0)
+        results.append({
+            "code": code,
+            "name": quote.get("name") or code,
+            "price": round(price, 4),
+            "prev_close": round(prev, 4),
+            "change_pct": round(change_pct, 2),
+            "change_amt": round(change_amt, 4),
+            "open": round(float(quote.get("open") or 0), 4),
+            "high": round(float(quote.get("high") or 0), 4),
+            "low": round(float(quote.get("low") or 0), 4),
+            "volume": int(float(quote.get("volume") or 0)),
+            "amount": float(quote.get("amount") or 0),
+            "bid1": round(float(quote.get("bid1") or 0), 4),
+            "ask1": round(float(quote.get("ask1") or 0), 4),
+            "turnover": float(quote.get("turnover") or 0),
+            "source": quote.get("source") or "unknown",
+            "updated": quote.get("updated") or now_str("quote_updated_format"),
+        })
+    return results
+
+
+def fetch_via_futu(codes: List[str]) -> List[Dict]:
+    return _quote_map_to_list(_realtime_futu(codes))
+
+
 def fetch_via_tencent(codes: List[str]) -> List[Dict]:
     if not codes:
         return []
@@ -161,6 +193,10 @@ def fetch_via_tencent(codes: List[str]) -> List[Dict]:
             print(f"[tencent] 解析失败：{e}")
             continue
     return results
+
+
+def fetch_via_eastmoney(codes: List[str]) -> List[Dict]:
+    return _quote_map_to_list(_realtime_eastmoney(codes))
 
 
 # ---- 分时行情（东方财富 push2his，自封装；akshare 仅保留为健康检查兼容） ----
@@ -330,40 +366,39 @@ def fetch_quotes(codes: List[str], prefer: str = "auto") -> Dict:
         if cached and now - cached["t"] < CACHE_TTL:
             return cached["data"]
 
-    primary_data = []
-    primary_source = ""
+    source_fetchers = {
+        "mootdx": fetch_via_mootdx,
+        "futu": fetch_via_futu,
+        "tencent": fetch_via_tencent,
+        "eastmoney": fetch_via_eastmoney,
+    }
+    source_order = ["mootdx", "futu", "tencent", "eastmoney"]
+    if prefer != "auto":
+        source_order = [prefer] if prefer in source_fetchers else source_order
 
-    if prefer in ("auto", "mootdx"):
-        primary_data = fetch_via_mootdx(codes)
-        primary_source = "mootdx" if primary_data else ""
+    final_map: Dict[str, Dict] = {}
+    used_sources: list[str] = []
+    for source in source_order:
+        missing = [code for code in codes if code not in final_map]
+        if not missing:
+            break
+        data = source_fetchers[source](missing)
+        if data:
+            used_sources.append(source)
+        for item in data:
+            final_map[item["code"]] = item
 
-    got = {d["code"] for d in primary_data}
-    missing = [c for c in codes if c not in got]
-
-    tencent_data = []
-    if missing or prefer == "tencent":
-        tencent_data = fetch_via_tencent(missing if prefer == "auto" else codes)
-
-    tencent_map = {d["code"]: d for d in tencent_data}
-    final = []
-    for d in primary_data:
-        if (not d.get("name") or d["name"] == d["code"]) and d["code"] in tencent_map:
-            d["name"] = tencent_map[d["code"]]["name"]
-        final.append(d)
-    for code in missing:
-        if code in tencent_map:
-            final.append(tencent_map[code])
-
-    if prefer == "tencent":
-        final = tencent_data
+    final = [final_map[code] for code in codes if code in final_map]
 
     result = {
         "success": True,
         "count": len(final),
         "data": final,
         "sources": {
-            "primary": primary_source or "tencent",
-            "fallback_used": bool(tencent_data) and primary_source == "mootdx",
+            "primary": used_sources[0] if used_sources else source_order[0],
+            "order": source_order,
+            "used": used_sources,
+            "fallback_used": len(used_sources) > 1,
         },
         "timestamp": now_str("timestamp_format"),
     }
@@ -394,7 +429,7 @@ def index():
       th { background: #f8f8f8; }
     </style></head><body>
     <h2>📈 ETF 实时行情服务<span class="tag">RUNNING</span></h2>
-    <p>数据源：mootdx（主）+ 腾讯财经（备）+ 东方财富（分时）</p>
+    <p>数据源：mootdx → FUTU OpenD → 腾讯财经 → 东方财富</p>
     <h3>接口</h3>
     <ul>
       <li><a href="/quote?codes=513130,518850,513100,513050,159202,515880,588990">/quote?codes=513130,518850,...</a></li>
@@ -516,7 +551,7 @@ def main():
     print(f"测试  : {base_url}/quote?codes=513130,518850")
     print(f"分时  : {base_url}/intraday?code=513130")
     print(f"FUTU  : {base_url}/intraday/futu?code=513130&period=15")
-    print("数据源: mootdx（主）+ 腾讯财经（备）+ 东方财富/FUTU（分时）")
+    print("数据源: mootdx → FUTU OpenD → 腾讯财经 → 东方财富")
     print("=" * 56)
     app.run(host=CONFIG["server"]["host"], port=int(CONFIG["server"]["quote_port"]), debug=bool(CONFIG["server"]["debug"]))
 

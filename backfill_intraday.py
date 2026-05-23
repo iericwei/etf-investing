@@ -2,6 +2,7 @@
 """收盘后运行：按综合标的池回填分钟行情并入库。"""
 from pathlib import Path
 import argparse
+from datetime import date
 import json
 import sys
 
@@ -127,30 +128,54 @@ def build_backfill_pool(
     return list(pool.values())
 
 
+def _parse_date_arg(value: str | None) -> date | None:
+    if not value:
+        return None
+    return date.fromisoformat(value)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="回填 ETF 分钟行情到本地行情库")
     parser.add_argument("--codes", help="逗号分隔 ETF 代码；传入后跳过综合标的池")
     parser.add_argument("--period", default=DEFAULT_INTRADAY_PERIOD, help="分钟周期：1/5/15/30/60，默认 5")
     parser.add_argument("--days", type=int, default=DEFAULT_HISTORY_DAYS, help="FUTU 历史分时回溯天数，默认 30")
+    parser.add_argument("--start-date", help="日期段起始日期，格式 YYYY-MM-DD；传入后按日期段回填")
+    parser.add_argument("--end-date", help="日期段结束日期，格式 YYYY-MM-DD；只传 start-date 时默认等于 start-date")
     parser.add_argument("--top", type=int, default=int(CONFIG["selection"].get("web_top_n", 50)), help="榜单模型筛选数量，默认 web_top_n")
     parser.add_argument("--min-amount", type=float, default=None, help="全市场池成交额门槛；默认使用配置")
     parser.add_argument("--max-count", type=int, default=None, help="全市场池最大扫描数量；默认使用配置")
     args = parser.parse_args()
 
+    try:
+        start_date = _parse_date_arg(args.start_date)
+        end_date = _parse_date_arg(args.end_date)
+    except ValueError:
+        print("--start-date/--end-date 格式错误，请使用 YYYY-MM-DD")
+        return 2
+    if start_date is not None and end_date is None:
+        end_date = start_date
+    if end_date is not None and start_date is None:
+        start_date = end_date
+    if start_date is not None and end_date is not None and start_date > end_date:
+        print("--start-date 不能晚于 --end-date")
+        return 2
+
+    date_range_label = f", date={start_date.isoformat()}..{end_date.isoformat()}" if start_date and end_date else ""
+
     if args.codes:
         codes = [normalize_code(c) for c in args.codes.split(",") if c.strip()]
-        print(f"使用手动 codes 回填: {len(codes)} 只，period={args.period}, days={args.days}")
+        print(f"使用手动 codes 回填: {len(codes)} 只，period={args.period}, days={args.days}{date_range_label}")
     else:
         selected = build_backfill_pool(top=args.top, min_amount=args.min_amount, max_count=args.max_count)
         codes = [item["code"] for item in selected]
-        print(f"使用综合标的池回填: {len(codes)} 只，period={args.period}, days={args.days}")
+        print(f"使用综合标的池回填: {len(codes)} 只，period={args.period}, days={args.days}{date_range_label}")
         if selected:
             print("标的:", ",".join(f"{item['code']}({item.get('name') or ''};{'+'.join(item.get('sources', []))})" for item in selected))
 
     if not codes:
         print("未得到可回填标的")
         return 1
-    result = backfill_intraday_history(codes, period=args.period, days=args.days)
+    result = backfill_intraday_history(codes, period=args.period, days=args.days, start_date=start_date, end_date=end_date)
     print(result)
     return 0 if result.get("success") else 1
 

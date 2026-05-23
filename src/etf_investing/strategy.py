@@ -5,6 +5,8 @@ ETF 选股策略与信号模型。
 - 默认模型 multi_factor_v1 是动量、量能、技术、趋势四类因子的加权评分。
 - 因子权重、内部参数、硬过滤阈值均来自 config.json 的 models.selection 配置。
 - 新增模型可继承 SelectionModel 并通过 register_selection_model 注册。
+组合层策略通过 config.json 的 models.portfolio 配置切换；默认组合策略为
+Eric C3 Rotation（艾瑞克C3 四窗口轮动）。
 """
 
 import copy
@@ -58,6 +60,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ret3"]  = c.pct_change(3) * 100
     df["ret5"]  = c.pct_change(5) * 100
     df["ret10"] = c.pct_change(10) * 100
+    df["ret20"] = c.pct_change(20) * 100
 
     return df
 
@@ -101,14 +104,38 @@ def get_selection_model_config(model_name: str | None = None) -> dict[str, Any]:
     return _without_comment_keys(copy.deepcopy(selection_cfg[active]))
 
 
-def get_backtest_scheme_config(scheme_name: str | None = None) -> tuple[str, dict[str, Any]]:
-    """读取回测方案配置；scheme_name 为空时使用当前 active_backtest_scheme。"""
+def _canonical_portfolio_strategy_name(name: str | None) -> str | None:
+    return name
+
+
+def _active_backtest_scheme_name() -> str:
     models_cfg = CONFIG.get("models", {})
-    active = scheme_name or models_cfg.get("active_backtest_scheme", "before_close_15m")
+    strategy_name = _canonical_portfolio_strategy_name(models_cfg.get("active_portfolio_strategy"))
+    strategy_cfg = models_cfg.get("portfolio", {}).get(strategy_name, {}) if strategy_name else {}
+    paired_scheme = strategy_cfg.get("backtest_scheme")
+    return str(paired_scheme or models_cfg.get("active_backtest_scheme", "before_close_15m"))
+
+
+def get_backtest_scheme_config(scheme_name: str | None = None) -> tuple[str, dict[str, Any]]:
+    """读取回测方案配置；scheme_name 为空时使用当前组合策略绑定的回测方案。"""
+    models_cfg = CONFIG.get("models", {})
+    active = scheme_name or _active_backtest_scheme_name()
     schemes = models_cfg.get("backtest", {})
     if active not in schemes:
         raise ValueError(f"未知回测方案配置: {active}")
     return active, _without_comment_keys(copy.deepcopy(schemes[active]))
+
+
+def get_portfolio_strategy_config(strategy_name: str | None = None) -> tuple[str, dict[str, Any]]:
+    """读取组合策略配置；strategy_name 为空时使用当前 active_portfolio_strategy。"""
+    models_cfg = CONFIG.get("models", {})
+    active = _canonical_portfolio_strategy_name(
+        strategy_name or models_cfg.get("active_portfolio_strategy", "legacy_single_symbol")
+    )
+    strategies = models_cfg.get("portfolio", {})
+    if active not in strategies:
+        raise ValueError(f"未知组合策略配置: {active}")
+    return active, _without_comment_keys(copy.deepcopy(strategies[active]))
 
 
 def _without_comment_keys(value: Any) -> Any:
@@ -378,19 +405,22 @@ def select_top(
             "model":           model.name,
         })
 
+    portfolio_name, portfolio_cfg = get_portfolio_strategy_config()
     for item in results:
         code = item["code"]
-        trade_signal = compute_trade_signal(enriched[code], realtime_price=float(item.get("price") or 0))
-        item["trade_signal"] = trade_signal
-        item["buy_signal"] = trade_signal["action"] == "buy"
-        item["sell_signal"] = trade_signal["action"] == "sell"
-        item["signal_sort"] = {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2)
+        apply_active_strategy_fields(
+            item,
+            enriched[code],
+            realtime_price=float(item.get("price") or 0),
+            portfolio_name=portfolio_name,
+            portfolio_config=portfolio_cfg,
+        )
         if include_backtest:
             bt = backtest_model(
                 enriched[code],
-                window=22,
                 intraday=(intraday_map or {}).get(code),
                 code=code,
+                selection_score=float(item.get("score") or 0),
             )
             item["backtest"] = bt
             item["backtest_return_pct"] = bt["return_pct"]
@@ -412,6 +442,399 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _cfg_float(cfg: dict[str, Any], key: str, default: float) -> float:
+    value = cfg.get(key, default)
+    if value is None:
+        return default
+    return _safe_float(value, default)
+
+
+def _cfg_int(cfg: dict[str, Any], key: str, default: int) -> int:
+    value = cfg.get(key, default)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _buy_signal_snapshot(ind: pd.DataFrame, realtime_price: float = 0) -> tuple[list[dict], dict]:
+    """基于已计算指标输出买入侧信号与关键指标快照。"""
+    if ind.empty:
+        return [], {}
+
+    last = ind.iloc[-1]
+    prev = ind.iloc[-2] if len(ind) >= 2 else last
+    price = realtime_price if realtime_price > 0 else _safe_float(last.get("close"))
+
+    ma5 = _safe_float(last.get("ma5"))
+    ma10 = _safe_float(last.get("ma10"))
+    ma20 = _safe_float(last.get("ma20"))
+    rsi = _safe_float(last.get("rsi"), 50.0)
+    hist = _safe_float(last.get("macd_hist"))
+    prev_hist = _safe_float(prev.get("macd_hist"))
+    ret3 = _safe_float(last.get("ret3"))
+    ret5 = _safe_float(last.get("ret5"))
+    ret10 = _safe_float(last.get("ret10"))
+    ret20 = _safe_float(last.get("ret20"))
+    vol_ratio = _safe_float(last.get("vol_ratio"), 1.0)
+
+    ma20_prev5 = _safe_float(ind["ma20"].iloc[-6]) if len(ind) >= 6 and "ma20" in ind.columns else 0.0
+    ma20_slope5_pct = ((ma20 - ma20_prev5) / ma20_prev5 * 100) if ma20 > 0 and ma20_prev5 > 0 else 0.0
+
+    close_ret = pd.to_numeric(ind.get("close", pd.Series(dtype=float)), errors="coerce").pct_change()
+    annualized_volatility_pct = _safe_float(close_ret.tail(20).std() * np.sqrt(252) * 100)
+
+    buy_signals = []
+    if ma5 > 0 and ma10 > 0 and ma20 > 0 and price > ma5 > ma10 > ma20:
+        buy_signals.append({"name": "均线多头排列", "level": "强"})
+    elif ma5 > 0 and ma10 > 0 and price > ma5 > ma10:
+        buy_signals.append({"name": "站上 MA5/MA10", "level": "中"})
+
+    if hist > 0 and prev_hist <= 0:
+        buy_signals.append({"name": "MACD 刚转多", "level": "中"})
+    elif hist > 0:
+        buy_signals.append({"name": "MACD 看多", "level": "弱"})
+
+    if ret3 > 0 and ret5 > 0:
+        buy_signals.append({"name": "短期动量为正", "level": "中"})
+    elif ret3 > 0:
+        buy_signals.append({"name": "3日动量为正", "level": "弱"})
+
+    if vol_ratio >= 1.5 and ret3 > 0:
+        buy_signals.append({"name": f"放量上涨 {vol_ratio:.1f}x", "level": "中"})
+
+    if 35 <= rsi <= 70:
+        buy_signals.append({"name": f"RSI健康 {rsi:.0f}", "level": "弱"})
+
+    metrics = {
+        "price": price,
+        "ma5": ma5,
+        "ma10": ma10,
+        "ma20": ma20,
+        "ma20_slope5_pct": ma20_slope5_pct,
+        "rsi": rsi,
+        "macd_hist": hist,
+        "prev_macd_hist": prev_hist,
+        "ret3": ret3,
+        "ret5": ret5,
+        "ret10": ret10,
+        "ret20": ret20,
+        "vol_ratio": vol_ratio,
+        "annualized_volatility_pct": annualized_volatility_pct,
+    }
+    return buy_signals, metrics
+
+
+def _resolve_portfolio_strategy(
+    strategy_name: str | None = None,
+    strategy_config: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    if strategy_config is not None:
+        name = strategy_name or str(strategy_config.get("name") or "custom")
+        return name, _without_comment_keys(copy.deepcopy(strategy_config))
+    return get_portfolio_strategy_config(strategy_name)
+
+
+def evaluate_portfolio_entry(
+    df: pd.DataFrame,
+    selection_score: float | None = None,
+    strategy_name: str | None = None,
+    strategy_config: dict[str, Any] | None = None,
+    realtime_price: float = 0,
+    monthly_return_pct: float | None = None,
+) -> dict:
+    """
+    评估组合轮动策略的单标的入场资格。
+
+    C3 使用横截面评分做第一道门槛，随后用买入信号、卖出风险、
+    均线趋势、动量区间、RSI、量比和波动率过滤假信号。
+    """
+    active, cfg = _resolve_portfolio_strategy(strategy_name, strategy_config)
+    if cfg.get("strategy_type") != "portfolio_rotation":
+        return {
+            "strategy": active,
+            "eligible": False,
+            "blocked_reasons": ["当前策略不是组合轮动策略"],
+            "buy_score": 0,
+            "sell_level": 0,
+            "metrics": {},
+        }
+
+    if df.empty or len(df) < 21:
+        return {
+            "strategy": active,
+            "eligible": False,
+            "blocked_reasons": ["历史数据不足"],
+            "buy_score": 0,
+            "sell_level": 0,
+            "metrics": {},
+        }
+
+    ind = compute_indicators(df.copy())
+    buy_signals, metrics = _buy_signal_snapshot(ind, realtime_price=realtime_price)
+    sell = compute_sell_signals(ind, realtime_price=realtime_price)
+    sell_level = int(sell.get("urgency_level", 0) or 0)
+    buy_score = sum(_SIG_WEIGHT[s["level"]] for s in buy_signals)
+
+    entry_cfg = cfg.get("entry", {})
+    guard_cfg = cfg.get("monthly_guard", {})
+    min_selection_score = _cfg_float(entry_cfg, "min_selection_score", 0)
+    guard_action = None
+    if monthly_return_pct is not None:
+        stop_return = _cfg_float(guard_cfg, "drawdown_stop_return_pct", -999)
+        lock_return = _cfg_float(guard_cfg, "profit_lock_return_pct", 999)
+        score_add = _cfg_float(guard_cfg, "profit_lock_score_add", 0)
+        if monthly_return_pct <= stop_return:
+            guard_action = "stop_new_buys"
+        elif monthly_return_pct >= lock_return:
+            min_selection_score += score_add
+            guard_action = "raise_entry_threshold"
+
+    reasons = []
+    if guard_action == "stop_new_buys":
+        reasons.append("月度回撤保护：停止新开仓")
+    if selection_score is None:
+        reasons.append("缺少横截面评分")
+    elif float(selection_score) < min_selection_score:
+        reasons.append(f"横截面评分不足 {float(selection_score):.1f} < {min_selection_score:.1f}")
+    if buy_score < _cfg_float(entry_cfg, "min_buy_score", 0):
+        reasons.append(f"买入信号分不足 {buy_score}")
+    if sell_level > _cfg_int(entry_cfg, "max_sell_level", 99):
+        reasons.append(f"卖出风险偏高 {sell_level}")
+    if entry_cfg.get("require_price_above_ma10", False) and not (metrics["price"] > metrics["ma10"] > 0):
+        reasons.append("价格未站上 MA10")
+    if entry_cfg.get("require_ma5_gt_ma10_gt_ma20", False) and not (
+        metrics["ma5"] > metrics["ma10"] > metrics["ma20"] > 0
+    ):
+        reasons.append("均线未形成 MA5 > MA10 > MA20")
+    if metrics["ma20_slope5_pct"] < _cfg_float(entry_cfg, "min_ma20_slope5_pct", -999):
+        reasons.append("MA20 斜率不足")
+    if metrics["ret10"] < _cfg_float(entry_cfg, "min_ret10_pct", -999):
+        reasons.append("10日动量不足")
+    if metrics["ret10"] > _cfg_float(entry_cfg, "max_ret10_pct", 999):
+        reasons.append("10日动量过热")
+    if metrics["ret20"] < _cfg_float(entry_cfg, "min_ret20_pct", -999):
+        reasons.append("20日动量不足")
+    if metrics["rsi"] < _cfg_float(entry_cfg, "min_rsi", -999):
+        reasons.append("RSI 偏弱")
+    if metrics["rsi"] > _cfg_float(entry_cfg, "max_rsi", 999):
+        reasons.append("RSI 过热")
+    if metrics["vol_ratio"] < _cfg_float(entry_cfg, "min_vol_ratio", -999):
+        reasons.append("量比不足")
+    if metrics["vol_ratio"] > _cfg_float(entry_cfg, "max_vol_ratio", 999):
+        reasons.append("量比过热")
+    if metrics["annualized_volatility_pct"] > _cfg_float(entry_cfg, "max_annualized_volatility_pct", 999):
+        reasons.append("波动率过高")
+
+    return {
+        "strategy": active,
+        "eligible": len(reasons) == 0,
+        "blocked_reasons": reasons,
+        "selection_score": selection_score,
+        "required_selection_score": min_selection_score,
+        "monthly_guard": guard_action,
+        "buy_score": buy_score,
+        "buy_signals": buy_signals,
+        "sell_level": sell_level,
+        "sell_signals": sell,
+        "metrics": metrics,
+    }
+
+
+def evaluate_portfolio_exit(
+    df: pd.DataFrame,
+    entry_price: float,
+    peak_price: float | None = None,
+    entry_date: Any | None = None,
+    current_date: Any | None = None,
+    soft_days: int = 0,
+    strategy_name: str | None = None,
+    strategy_config: dict[str, Any] | None = None,
+    realtime_price: float = 0,
+) -> dict:
+    """评估组合轮动策略的持仓退出条件。"""
+    active, cfg = _resolve_portfolio_strategy(strategy_name, strategy_config)
+    if cfg.get("strategy_type") != "portfolio_rotation":
+        return {
+            "strategy": active,
+            "should_sell": False,
+            "reason": "当前策略不是组合轮动策略",
+            "soft_days": soft_days,
+            "metrics": {},
+        }
+
+    entry_price = _safe_float(entry_price)
+    if df.empty or len(df) < 10 or entry_price <= 0:
+        return {
+            "strategy": active,
+            "should_sell": False,
+            "reason": "数据不足",
+            "soft_days": soft_days,
+            "metrics": {},
+        }
+
+    ind = compute_indicators(df.copy())
+    buy_signals, metrics = _buy_signal_snapshot(ind, realtime_price=realtime_price)
+    sell = compute_sell_signals(ind, realtime_price=realtime_price)
+    sell_level = int(sell.get("urgency_level", 0) or 0)
+    buy_score = sum(_SIG_WEIGHT[s["level"]] for s in buy_signals)
+
+    price = metrics["price"]
+    peak = max(_safe_float(peak_price, price), price)
+    return_pct = (price - entry_price) / entry_price * 100
+    peak_return_pct = (peak - entry_price) / entry_price * 100
+    drawdown_pct = (peak - price) / peak * 100 if peak > 0 else 0.0
+
+    last_date = current_date
+    if last_date is None and "date" in ind.columns:
+        last_date = ind.iloc[-1].get("date")
+    hold_days = 0
+    if entry_date is not None and last_date is not None:
+        try:
+            hold_days = max(0, int((pd.to_datetime(last_date) - pd.to_datetime(entry_date)).days))
+        except Exception:
+            hold_days = 0
+
+    exit_cfg = cfg.get("exit", {})
+    next_soft_days = 0
+    should_sell = False
+    reason = "持有"
+    priority = "hold"
+
+    if return_pct <= _cfg_float(exit_cfg, "hard_stop_loss_pct", -999):
+        should_sell, reason, priority = True, "硬止损", "hard_stop_loss"
+    elif peak > entry_price and drawdown_pct >= _cfg_float(exit_cfg, "trailing_stop_pct", 999):
+        should_sell, reason, priority = True, "移动止盈", "trailing_stop"
+    elif (
+        peak_return_pct >= _cfg_float(exit_cfg, "profit_protect_min_profit_pct", 999)
+        and drawdown_pct >= _cfg_float(exit_cfg, "profit_protect_drawdown_pct", 999)
+    ):
+        should_sell, reason, priority = True, "利润保护", "profit_protection"
+    elif sell_level >= _cfg_int(exit_cfg, "strong_sell_level", 99):
+        should_sell, reason, priority = True, "强卖出风险", "strong_sell"
+    else:
+        soft_trigger = (
+            sell_level >= _cfg_int(exit_cfg, "soft_sell_level", 99)
+            and hold_days >= _cfg_int(exit_cfg, "soft_grace_days", 0)
+            and (
+                buy_score < _cfg_int(exit_cfg, "soft_min_buy_score", 0)
+                or (metrics["ma10"] > 0 and price < metrics["ma10"])
+                or metrics["ret5"] <= _cfg_float(exit_cfg, "soft_ret5_floor_pct", -999)
+            )
+        )
+        next_soft_days = soft_days + 1 if soft_trigger else 0
+        if next_soft_days >= _cfg_int(exit_cfg, "soft_confirmation_days", 1):
+            should_sell, reason, priority = True, "软退出确认", "soft_confirmation"
+        elif hold_days >= _cfg_int(exit_cfg, "time_stop_days", 9999) and return_pct < _cfg_float(
+            exit_cfg, "time_stop_min_return_pct", -999
+        ):
+            should_sell, reason, priority = True, "时间止损", "time_stop"
+        elif soft_trigger:
+            reason, priority = "软退出观察", "soft_watch"
+
+    return {
+        "strategy": active,
+        "should_sell": should_sell,
+        "reason": reason,
+        "priority": priority,
+        "soft_days": next_soft_days,
+        "buy_score": buy_score,
+        "sell_level": sell_level,
+        "sell_signals": sell,
+        "metrics": {
+            **metrics,
+            "entry_price": entry_price,
+            "peak_price": peak,
+            "return_pct": return_pct,
+            "peak_return_pct": peak_return_pct,
+            "drawdown_pct": drawdown_pct,
+            "hold_days": hold_days,
+        },
+    }
+
+
+def _portfolio_entry_trade_signal(entry: dict) -> dict:
+    if entry.get("eligible"):
+        return {
+            "action": "buy",
+            "label": "C3候选",
+            "level": 2,
+            "buy_score": entry.get("buy_score", 0),
+            "buy_signals": entry.get("buy_signals", []),
+            "sell_signals": entry.get("sell_signals", {}),
+            "blocked_reasons": [],
+        }
+
+    sell_level = int(entry.get("sell_level", 0) or 0)
+    reasons = list(entry.get("blocked_reasons") or [])
+    if sell_level >= 2:
+        action = "sell"
+        label = "C3风险过滤"
+        level = sell_level
+    else:
+        action = "hold"
+        label = "C3观望"
+        level = 0
+
+    return {
+        "action": action,
+        "label": label,
+        "level": level,
+        "buy_score": entry.get("buy_score", 0),
+        "buy_signals": entry.get("buy_signals", []),
+        "sell_signals": entry.get("sell_signals", {}),
+        "blocked_reasons": reasons[:5],
+    }
+
+
+def apply_active_strategy_fields(
+    item: dict,
+    df: pd.DataFrame,
+    realtime_price: float = 0,
+    portfolio_name: str | None = None,
+    portfolio_config: dict[str, Any] | None = None,
+) -> dict:
+    """把当前 active strategy 的信号字段写入榜单行。"""
+    legacy_trade_signal = compute_trade_signal(df, realtime_price=realtime_price)
+    if portfolio_config is None:
+        portfolio_name, portfolio_config = get_portfolio_strategy_config(portfolio_name)
+    else:
+        portfolio_name = portfolio_name or "custom"
+        portfolio_config = _without_comment_keys(copy.deepcopy(portfolio_config))
+
+    item["legacy_trade_signal"] = legacy_trade_signal
+    item["portfolio_strategy"] = {
+        "name": portfolio_name,
+        "display_name": portfolio_config.get("display_name", portfolio_name),
+        "strategy_type": portfolio_config.get("strategy_type", ""),
+        "backtest_scheme": portfolio_config.get("backtest_scheme"),
+    }
+
+    if portfolio_config.get("strategy_type") == "portfolio_rotation":
+        portfolio_entry = evaluate_portfolio_entry(
+            df,
+            selection_score=_safe_float(item.get("score"), None),
+            strategy_name=portfolio_name,
+            strategy_config=portfolio_config,
+            realtime_price=realtime_price,
+        )
+        trade_signal = _portfolio_entry_trade_signal(portfolio_entry)
+        item["portfolio_entry"] = portfolio_entry
+        item["portfolio_buy_candidate"] = bool(portfolio_entry.get("eligible"))
+    else:
+        trade_signal = legacy_trade_signal
+        item["portfolio_entry"] = None
+        item["portfolio_buy_candidate"] = legacy_trade_signal.get("action") == "buy"
+
+    item["trade_signal"] = trade_signal
+    item["buy_signal"] = trade_signal["action"] == "buy"
+    item["sell_signal"] = trade_signal["action"] == "sell"
+    item["signal_sort"] = {"buy": 3, "hold": 2, "sell": 1}.get(trade_signal["action"], 2)
+    return item
 
 
 def compute_trade_signal(df: pd.DataFrame, realtime_price: float = 0) -> dict:
@@ -553,6 +976,18 @@ def _prepare_intraday_source_lookup(intraday: pd.DataFrame | None, trade_time: s
     return {date_key: {"price": price, "source": source} for date_key, price in price_lookup.items()}
 
 
+def _prepare_intraday_window_lookup(
+    intraday: pd.DataFrame | None,
+    trade_windows: list[str],
+    source: str,
+) -> dict[pd.Timestamp, dict[str, dict[str, Any]]]:
+    lookup: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for trade_time in trade_windows:
+        for date_key, price in _prepare_intraday_lookup(intraday, trade_time).items():
+            lookup.setdefault(date_key, {})[trade_time] = {"price": price, "source": source}
+    return lookup
+
+
 def _backtest_date_range(data: pd.DataFrame, start: int) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     dates = pd.to_datetime(data.iloc[start:]["date"], errors="coerce").dropna()
     if dates.empty:
@@ -590,6 +1025,34 @@ def _resolve_backtest_price_lookup(
     return _prepare_intraday_source_lookup(intraday, trade_time, "local")
 
 
+def _resolve_backtest_window_price_lookup(
+    data: pd.DataFrame,
+    *,
+    code: str | None,
+    start: int,
+    window_days: int,
+    trade_windows: list[str],
+    intraday: pd.DataFrame | None = None,
+    market_data_store: Any | None = None,
+) -> dict[pd.Timestamp, dict[str, dict[str, Any]]]:
+    if code and str(code).strip().isdigit():
+        normalized_code = normalize_code(code)
+        store = market_data_store or MarketDataStore()
+        start_date, end_date = _backtest_date_range(data, start)
+        if start_date is None or end_date is None:
+            return _prepare_intraday_window_lookup(intraday, trade_windows, "local")
+        local_df = store.load_intraday(normalized_code, DEFAULT_INTRADAY_PERIOD, start_date.date(), end_date.date())
+        local_lookup = _prepare_intraday_window_lookup(local_df, trade_windows, "local")
+        if local_lookup:
+            return local_lookup
+        futu_result = fetch_futu_intraday_history(normalized_code, period=DEFAULT_INTRADAY_PERIOD, days=max(window_days, 3))
+        if not futu_result.df.empty:
+            store.save_intraday(normalized_code, DEFAULT_INTRADAY_PERIOD, futu_result.df, "futu")
+            return _prepare_intraday_window_lookup(futu_result.df, trade_windows, "futu")
+        return {}
+    return _prepare_intraday_window_lookup(intraday, trade_windows, "local")
+
+
 _PRICE_SOURCE_NOTES = {
     "local": "成交价使用本地行情库的 5 分钟分时行情，取每个交易日 14:45 K 线收盘价",
     "futu": "成交价使用 FUTU OpenAPI 实时获取的 5 分钟分时行情，取每个交易日 14:45 K 线收盘价，并已写入本地行情库",
@@ -606,6 +1069,11 @@ def _dominant_price_source(lookup: dict[pd.Timestamp, dict[str, Any]]) -> str:
     if "futu" in sources:
         return "futu"
     return sources[0] or "日k"
+
+
+def _dominant_window_price_source(lookup: dict[pd.Timestamp, dict[str, dict[str, Any]]]) -> str:
+    flat = [item for day in lookup.values() for item in day.values()]
+    return _dominant_price_source({pd.Timestamp(i): item for i, item in enumerate(flat)})
 
 
 def _backtest_scheme_meta(scheme_name: str | None = None, scheme_config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
@@ -631,6 +1099,239 @@ def _price_source_label(source: str) -> str:
     return source
 
 
+def _scheme_trade_windows(scheme: dict[str, Any]) -> list[str]:
+    windows = scheme.get("trade_windows")
+    if isinstance(windows, list) and windows:
+        return [str(item) for item in windows if str(item)]
+    return [str(scheme.get("trade_time", "14:45"))]
+
+
+def _set_intraday_price(hist: pd.DataFrame, price: float) -> pd.DataFrame:
+    adjusted = hist.copy()
+    idx = adjusted.index[-1]
+    adjusted.loc[idx, "close"] = price
+    if "high" in adjusted.columns:
+        adjusted.loc[idx, "high"] = max(_safe_float(adjusted.loc[idx, "high"]), price)
+    if "low" in adjusted.columns:
+        low = _safe_float(adjusted.loc[idx, "low"], price)
+        adjusted.loc[idx, "low"] = min(low if low > 0 else price, price)
+    return adjusted
+
+
+def _portfolio_exit_reason(result: dict) -> str:
+    sell = result.get("sell_signals") or {}
+    names = [s.get("name", "") for s in sell.get("signals", []) if s.get("name")]
+    detail = "；".join(names[:2])
+    reason = str(result.get("reason") or "C3退出")
+    return f"{reason}：{detail}" if detail else reason
+
+
+def _backtest_portfolio_rotation_model(
+    df: pd.DataFrame,
+    *,
+    active_scheme: str,
+    scheme: dict[str, Any],
+    window_days: int,
+    intraday: pd.DataFrame | None,
+    code: str | None,
+    market_data_store: Any | None,
+    selection_score: float | None,
+) -> dict:
+    trade_windows = _scheme_trade_windows(scheme)
+    trade_time = str(scheme.get("trade_time", trade_windows[-1] if trade_windows else "14:45"))
+    timing_label = str(scheme.get("trade_timing_label", "四窗口"))
+    data = df.copy().reset_index(drop=True)
+    start = max(1, len(data) - window_days) if not data.empty else 1
+    window_lookup = _resolve_backtest_window_price_lookup(
+        data,
+        code=code,
+        start=start,
+        window_days=window_days,
+        trade_windows=trade_windows,
+        intraday=intraday,
+        market_data_store=market_data_store,
+    ) if not data.empty else {}
+    price_source = _dominant_window_price_source(window_lookup)
+    price_note = _PRICE_SOURCE_NOTES.get(price_source, "")
+    if len(trade_windows) > 1 and price_source in {"local", "futu"}:
+        price_note = f"成交价使用 5 分钟分时行情，按 {' / '.join(trade_windows)} 四窗口依次评估"
+
+    base_result = {
+        "scheme": active_scheme,
+        "scheme_name": active_scheme,
+        "scheme_display_name": str(scheme.get("display_name", active_scheme)),
+        "trade_time": trade_time,
+        "trade_windows": trade_windows,
+        "trade_timing_label": timing_label,
+        "execution_price": price_source,
+        "price_source_label": _price_source_label(price_source),
+        "price_note": price_note,
+        "window_days": window_days,
+        "signal_model": str(scheme.get("signal_model", "")),
+    }
+
+    if df.empty or len(df) < 21:
+        return {
+            **base_result,
+            "return_pct": 0.0,
+            "trades": 0,
+            "holding": False,
+            "entry_price": None,
+            "curve": [],
+            "trade_points": [],
+            "status": "数据不足",
+        }
+
+    strategy_name = _canonical_portfolio_strategy_name(str(scheme.get("signal_model") or "")) or "eric_c3_rotation"
+    _, strategy_cfg = get_portfolio_strategy_config(strategy_name)
+    score = selection_score
+    if score is None:
+        score = _cfg_float(scheme, "selection_score_fallback", 100)
+
+    cash = 1.0
+    shares = 0.0
+    entry_price = 0.0
+    entry_date = None
+    peak_price = 0.0
+    soft_days = 0
+    trades = 0
+    curve = []
+    trade_points = []
+
+    for pos in range(start, len(data)):
+        hist = data.iloc[: pos + 1]
+        row = hist.iloc[-1]
+        date_text = _format_backtest_date(row, pos)
+        try:
+            date_key = pd.to_datetime(row.get("date")).normalize()
+        except Exception:
+            date_key = None
+        daily_price = _safe_float(row.get("close"))
+        day_lookup = window_lookup.get(date_key, {}) if date_key is not None else {}
+        active_windows = [w for w in trade_windows if w in day_lookup] if day_lookup else [trade_time]
+        curve_price = daily_price
+        day_soft_days = soft_days
+
+        for current_time in active_windows:
+            lookup_item = day_lookup.get(current_time)
+            if lookup_item:
+                price = _safe_float(lookup_item.get("price"))
+                trade_price_source = str(lookup_item.get("source") or "local")
+            else:
+                price = daily_price
+                trade_price_source = "日k"
+            if price <= 0:
+                continue
+            curve_price = price
+            signal_hist = _set_intraday_price(hist, price)
+
+            if shares <= 0:
+                entry = evaluate_portfolio_entry(
+                    signal_hist,
+                    selection_score=score,
+                    strategy_name=strategy_name,
+                    strategy_config=strategy_cfg,
+                    realtime_price=price,
+                )
+                if not entry.get("eligible"):
+                    continue
+                shares = cash / price
+                cash = 0.0
+                entry_price = price
+                peak_price = price
+                entry_date = row.get("date")
+                soft_days = 0
+                day_soft_days = 0
+                trades += 1
+                sig = _portfolio_entry_trade_signal(entry)
+                trade_points.append({
+                    "action": "buy",
+                    "label": f"买入（{timing_label}）",
+                    "date": date_text,
+                    "time": current_time,
+                    "trade_timing_label": timing_label,
+                    "price": round(price, 4),
+                    "price_source": trade_price_source,
+                    "price_source_label": _price_source_label(trade_price_source),
+                    "reason": _trade_reason(sig, "buy"),
+                    "return_pct": round((cash + shares * price - 1.0) * 100, 2),
+                })
+                break
+
+            peak_price = max(peak_price, price)
+            exit_result = evaluate_portfolio_exit(
+                signal_hist,
+                entry_price=entry_price,
+                peak_price=peak_price,
+                entry_date=entry_date,
+                current_date=row.get("date"),
+                soft_days=soft_days,
+                strategy_name=strategy_name,
+                strategy_config=strategy_cfg,
+                realtime_price=price,
+            )
+            day_soft_days = max(day_soft_days, int(exit_result.get("soft_days", 0) or 0))
+            if not exit_result.get("should_sell"):
+                continue
+
+            cash = shares * price
+            shares = 0.0
+            entry_price = 0.0
+            entry_date = None
+            peak_price = 0.0
+            soft_days = 0
+            day_soft_days = 0
+            trades += 1
+            trade_points.append({
+                "action": "sell",
+                "label": f"卖出（{timing_label}）",
+                "date": date_text,
+                "time": current_time,
+                "trade_timing_label": timing_label,
+                "price": round(price, 4),
+                "price_source": trade_price_source,
+                "price_source_label": _price_source_label(trade_price_source),
+                "reason": _portfolio_exit_reason(exit_result),
+                "return_pct": round((cash - 1.0) * 100, 2),
+            })
+            break
+
+        if shares > 0:
+            soft_days = day_soft_days
+        value = cash + shares * curve_price
+        curve.append({
+            "date": date_text,
+            "close": round(curve_price, 4),
+            "return_pct": round((value - 1.0) * 100, 2),
+        })
+
+    last_row = data.iloc[-1]
+    try:
+        last_date_key = pd.to_datetime(last_row.get("date")).normalize()
+    except Exception:
+        last_date_key = None
+    last_daily_price = _safe_float(last_row.get("close"))
+    last_day_lookup = window_lookup.get(last_date_key, {}) if last_date_key is not None else {}
+    last_lookup_item = None
+    for current_time in reversed(trade_windows):
+        if current_time in last_day_lookup:
+            last_lookup_item = last_day_lookup[current_time]
+            break
+    last_price = _safe_float(last_lookup_item.get("price")) if last_lookup_item else last_daily_price
+    final_value = cash + shares * last_price
+    return_pct = (final_value - 1.0) * 100
+    return {
+        **base_result,
+        "return_pct": round(return_pct, 2),
+        "trades": trades,
+        "holding": shares > 0,
+        "entry_price": round(entry_price, 4) if entry_price else None,
+        "curve": curve,
+        "trade_points": trade_points,
+        "status": "ok",
+    }
+
+
 def backtest_model(
     df: pd.DataFrame,
     window: int | None = None,
@@ -639,10 +1340,24 @@ def backtest_model(
     intraday: pd.DataFrame | None = None,
     code: str | None = None,
     market_data_store: Any | None = None,
+    selection_score: float | None = None,
 ) -> dict:
     """用买卖信号按指定回测方案做单标的回测。"""
     active_scheme, scheme = _backtest_scheme_meta(scheme_name, scheme_config)
     window_days = int(window if window is not None else scheme.get("window_days", 22))
+    signal_model = _canonical_portfolio_strategy_name(str(scheme.get("signal_model") or ""))
+    if signal_model == "eric_c3_rotation":
+        return _backtest_portfolio_rotation_model(
+            df,
+            active_scheme=active_scheme,
+            scheme=scheme,
+            window_days=window_days,
+            intraday=intraday,
+            code=code,
+            market_data_store=market_data_store,
+            selection_score=selection_score,
+        )
+
     trade_time = str(scheme.get("trade_time", "14:45"))
     timing_label = str(scheme.get("trade_timing_label", "收盘前15分钟"))
     data = df.copy().reset_index(drop=True)
