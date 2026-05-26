@@ -35,6 +35,7 @@ from .notifications import (
     NOTIFICATION_STATE_FILE,
     SIGNAL_STATE_FILE,
     due_strategy_windows,
+    format_auto_refresh_failure_message,
     format_strategy_signal_message,
     load_json_state,
     mark_strategy_window_done,
@@ -670,7 +671,43 @@ def _group_by_target(results: list[dict]) -> list[dict]:
     return out
 
 
-def _run_selection():
+def _notify_auto_refresh_failure(error: Any, *, trigger: str) -> bool:
+    notify_cfg = CONFIG.get("notifications", {})
+    if not bool(notify_cfg.get("auto_refresh_failure_enabled", True)):
+        return False
+    webhook_configured = bool(str(notify_cfg.get("feishu_webhook_url", "") or "").strip())
+    if not webhook_configured:
+        return False
+
+    now = datetime.now()
+    error_text = str(error) or "未知错误"
+    cooldown = int(notify_cfg.get("auto_refresh_failure_cooldown_minutes", 30))
+    state = load_json_state(NOTIFICATION_STATE_FILE)
+    fail_state = state.get("auto_refresh_failure", {}) if isinstance(state.get("auto_refresh_failure"), dict) else {}
+    last_sent_at = str(fail_state.get("sent_at") or "")
+    last_error = str(fail_state.get("error") or "")
+    last_trigger = str(fail_state.get("trigger") or "")
+    if last_sent_at and last_error == error_text and last_trigger == trigger:
+        try:
+            elapsed = (now - datetime.strptime(last_sent_at, CONFIG["time"]["timestamp_format"])).total_seconds()
+            if elapsed < cooldown * 60:
+                return False
+        except Exception:
+            pass
+
+    text = format_auto_refresh_failure_message(trigger=trigger, error=error_text, failed_at=now)
+    sent = send_feishu_text(text)
+    if sent:
+        state["auto_refresh_failure"] = {
+            "trigger": trigger,
+            "error": error_text,
+            "sent_at": now.strftime(CONFIG["time"]["timestamp_format"]),
+        }
+        save_json_state(NOTIFICATION_STATE_FILE, state)
+    return sent
+
+
+def _run_selection(*, notify_on_error: bool = False, trigger: str = "manual"):
     try:
         universe = fetch_universe(
             min_amount=float(CONFIG["selection"]["default_min_amount"]),
@@ -726,9 +763,11 @@ def _run_selection():
     except Exception as e:
         with _lock:
             _cache.update(status="error", error=str(e))
+        if notify_on_error:
+            _notify_auto_refresh_failure(e, trigger=trigger)
 
 
-def _ensure_fresh(force: bool = False):
+def _ensure_fresh(force: bool = False, *, notify_on_error: bool = False, trigger: str = "manual"):
     with _lock:
         today = today_str()
         if not force and _cache["status"] == "loading":
@@ -736,7 +775,11 @@ def _ensure_fresh(force: bool = False):
         if not force and _cache["status"] == "ready" and _cache["date"] == today:
             return
         _cache["status"] = "loading"
-    threading.Thread(target=_run_selection, daemon=True).start()
+    threading.Thread(
+        target=_run_selection,
+        kwargs={"notify_on_error": notify_on_error, "trigger": trigger},
+        daemon=True,
+    ).start()
 
 
 def _append_custom_to_ready_cache(code: str):
@@ -980,7 +1023,7 @@ def _run_strategy_signal_window(window: str, scheduled_at: datetime | None = Non
     try:
         with _lock:
             _cache["status"] = "loading"
-        _run_selection()
+        _run_selection(notify_on_error=True, trigger="strategy_window")
         with _lock:
             if _cache.get("status") != "ready":
                 return False
@@ -1080,7 +1123,9 @@ def api_select():
 @app.route("/api/refresh")
 def api_refresh():
     # 刷新只重跑选股/实时数据，不运行回测；回测由收盘后定时任务或手动按钮触发。
-    _ensure_fresh(force=True)
+    source = str(request.args.get("source") or "").strip().lower()
+    is_auto = source == "auto"
+    _ensure_fresh(force=True, notify_on_error=is_auto, trigger="web_auto" if is_auto else "manual")
     return jsonify({"status": "loading", "backtest": "skipped"})
 
 

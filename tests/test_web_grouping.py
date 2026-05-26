@@ -52,6 +52,42 @@ class WebTargetGroupingTests(unittest.TestCase):
         self.assertIn("eric_c3_rotation", names)
         self.assertIn("legacy_single_symbol", names)
 
+    def test_auto_refresh_endpoint_enables_failure_notification(self):
+        with patch.object(web_app, "_ensure_fresh") as ensure:
+            res = web_app.app.test_client().get("/api/refresh?source=auto")
+
+        self.assertEqual(res.status_code, 200)
+        ensure.assert_called_once_with(force=True, notify_on_error=True, trigger="web_auto")
+
+    def test_manual_refresh_endpoint_does_not_enable_failure_notification(self):
+        with patch.object(web_app, "_ensure_fresh") as ensure:
+            res = web_app.app.test_client().get("/api/refresh")
+
+        self.assertEqual(res.status_code, 200)
+        ensure.assert_called_once_with(force=True, notify_on_error=False, trigger="manual")
+
+    def test_auto_refresh_failure_notification_is_cooled_down(self):
+        old_notifications = dict(web_app.CONFIG.get("notifications", {}))
+        web_app.CONFIG["notifications"].update({
+            "feishu_webhook_url": "https://example.test/hook",
+            "auto_refresh_failure_enabled": True,
+            "auto_refresh_failure_cooldown_minutes": 30,
+        })
+        try:
+            with TemporaryDirectory() as td, \
+                 patch.object(web_app, "NOTIFICATION_STATE_FILE", Path(td) / "notification_state.json"), \
+                 patch.object(web_app, "send_feishu_text", return_value=True) as send:
+                first = web_app._notify_auto_refresh_failure(RuntimeError("行情失败"), trigger="web_auto")
+                second = web_app._notify_auto_refresh_failure(RuntimeError("行情失败"), trigger="web_auto")
+
+            self.assertTrue(first)
+            self.assertFalse(second)
+            send.assert_called_once()
+            self.assertIn("自动刷新行情失败", send.call_args.args[0])
+        finally:
+            web_app.CONFIG["notifications"].clear()
+            web_app.CONFIG["notifications"].update(old_notifications)
+
     def test_holding_records_accept_legacy_string_list(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "holdings.json"

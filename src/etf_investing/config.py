@@ -196,6 +196,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "strategy_signal_max_rows": 8,
         "strategy_signal_sell_urgency_min_level": 2,
         "strategy_signal_notify_no_signal": False,
+        "auto_refresh_failure_enabled": True,
+        "auto_refresh_failure_cooldown_minutes": 30,
     },
     "time": {
         "date_format": "%Y-%m-%d",

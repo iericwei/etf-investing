@@ -1022,9 +1022,10 @@ function startPolling() {
   _timer = setInterval(poll, APP_CONFIG.selectionPollIntervalMs);
 }
 
-async function doRefresh() {
+async function doRefresh(source = 'manual') {
   document.getElementById('btnRefresh').disabled = true;
-  await fetch('/api/refresh').catch(()=>{});
+  const suffix = source === 'auto' ? '?source=auto' : '';
+  await fetch('/api/refresh' + suffix).catch(()=>{});
   startPolling();
 }
 
@@ -1077,7 +1078,7 @@ async function pollBacktestStatus() {
 function startAutoRefresh() {
   setInterval(async () => {
     const status = await loadMarketStatus();
-    if (status.auto_refresh_allowed) doRefresh();
+    if (status.auto_refresh_allowed) doRefresh('auto');
   }, APP_CONFIG.autoRefreshIntervalMs);
 }
 

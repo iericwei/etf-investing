@@ -110,6 +110,18 @@ class NotificationConfigTests(unittest.TestCase):
         self.assertIn("111111 测试ETF", text)
         self.assertIn("222222 风险ETF", text)
 
+    def test_format_auto_refresh_failure_message_contains_action_guidance(self):
+        text = notifications.format_auto_refresh_failure_message(
+            trigger="web_auto",
+            error="行情源超时",
+            failed_at=datetime(2026, 5, 25, 10, 15, 0),
+        )
+
+        self.assertIn("自动刷新行情失败", text)
+        self.assertIn("页面自动刷新", text)
+        self.assertIn("行情源超时", text)
+        self.assertIn("处理建议", text)
+
 
 if __name__ == "__main__":
     unittest.main()

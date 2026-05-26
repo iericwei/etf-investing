@@ -184,3 +184,20 @@ def format_strategy_signal_message(
     if not buy_rows and not sell_rows:
         lines += ["", "本窗口没有触发买入或卖出信号。"]
     return "\n".join(lines)
+
+
+def format_auto_refresh_failure_message(*, trigger: str, error: Any, failed_at: datetime) -> str:
+    trigger_label = {
+        "web_auto": "页面自动刷新",
+        "strategy_window": "策略窗口后台刷新",
+    }.get(str(trigger), str(trigger) or "自动刷新")
+    return "\n".join([
+        f"自动刷新行情失败｜{trigger_label}",
+        f"时间：{failed_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"错误：{str(error) or '未知错误'}",
+        "",
+        "处理建议：",
+        "- 打开 ETF 选股日报确认页面数据时间是否停滞。",
+        "- 检查行情源、网络连接和本地服务日志。",
+        "- 如接近交易窗口，先手动刷新；仍失败时暂停按最新信号交易。",
+    ])
