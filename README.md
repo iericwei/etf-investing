@@ -52,7 +52,7 @@ futu-api
 当前开发机环境：
 
 - 操作系统：macOS
-- Python版本：Python 3.13.0
+- Python版本：Python 3.13.x（当前验证版本为 Python 3.13.0）
 
 推荐运行方式：
 
@@ -65,7 +65,7 @@ python etf_web.py
 python etf_server.py
 ```
 
-如果重新创建虚拟环境，建议使用 Python 3.10+；当前项目已在 Python 3.13.0 虚拟环境下运行和测试。
+如果重新创建虚拟环境，建议使用 Python 3.13.x；当前项目已在 Python 3.13.0 虚拟环境下运行和测试。`venv-deploy.sh` 会优先复用符合要求的 `.venv`；在新机器上找不到 Python 3.13.x 时，会尝试通过 `uv`、Homebrew 或 apt 安装，再创建虚拟环境。
 
 ### 本地端口要求
 

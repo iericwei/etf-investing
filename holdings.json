@@ -5,23 +5,23 @@
     "entry_date": "2026-05-19",
     "peak_price": 1.653,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "562500",
     "entry_price": 1.074,
     "entry_date": "2026-05-11",
     "peak_price": 1.23,
-    "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "soft_days": 5,
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "159530",
     "entry_price": 1.681,
     "entry_date": "2026-05-22",
     "peak_price": 1.769,
-    "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "soft_days": 5,
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "159652",
@@ -29,7 +29,7 @@
     "entry_date": "2026-01-28",
     "peak_price": 2.212,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "588750",
@@ -37,7 +37,7 @@
     "entry_date": "2026-05-22",
     "peak_price": 2.601,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "561980",
@@ -45,15 +45,15 @@
     "entry_date": "2026-05-22",
     "peak_price": 3.454,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "588760",
     "entry_price": 0.963,
     "entry_date": "2026-05-21",
     "peak_price": 0.971,
-    "soft_days": 6,
-    "updated_at": "2026-05-26 09:45:57"
+    "soft_days": 78,
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "515050",
@@ -61,7 +61,7 @@
     "entry_date": "2026-05-22",
     "peak_price": 1.205,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "159509",
@@ -69,16 +69,16 @@
     "entry_date": "2026-05-14",
     "peak_price": 2.712,
     "soft_days": 0,
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "513310",
     "entry_price": 5.708,
     "entry_date": "2026-05-23",
-    "peak_price": 6.048,
-    "soft_days": 36,
+    "peak_price": 6.215,
+    "soft_days": 115,
     "added_at": "2026-05-23 18:59:42",
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "588000",
@@ -87,7 +87,7 @@
     "peak_price": 1.998,
     "soft_days": 0,
     "added_at": "2026-05-25 09:44:45",
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "159995",
@@ -96,7 +96,7 @@
     "peak_price": 2.728,
     "soft_days": 0,
     "added_at": "2026-05-25 09:50:10",
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "515880",
@@ -105,7 +105,7 @@
     "peak_price": 1.564,
     "soft_days": 0,
     "added_at": "2026-05-25 09:52:26",
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   },
   {
     "code": "159813",
@@ -114,6 +114,6 @@
     "peak_price": 1.73,
     "soft_days": 0,
     "added_at": "2026-05-26 09:35:00",
-    "updated_at": "2026-05-26 09:45:57"
+    "updated_at": "2026-05-26 14:10:54"
   }
 ]

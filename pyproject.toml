@@ -2,7 +2,7 @@
 name = "etf-investing"
 version = "0.1.0"
 description = "ETF selection dashboard and quote utilities"
-requires-python = ">=3.10"
+requires-python = ">=3.13,<3.14"
 dependencies = [
   "flask",
   "flask-cors",
@@ -10,6 +10,7 @@ dependencies = [
   "requests",
   "pandas",
   "numpy",
+  "akshare",
   "futu-api",
 ]
 
